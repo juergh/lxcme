@@ -1,0 +1,45 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "lxcme"
+version = "0.1.0"
+description = "A CLI tool to manage LXC instances with seamless user and home directory integration"
+requires-python = ">=3.11"
+dependencies = [
+    "click>=8.1",
+    "pylxd>=2.3",
+    "orjson>=3.9",
+]
+
+[project.scripts]
+lxcme = "lxcme.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-mock>=3.12",
+    "mypy>=1.9",
+    "ruff>=0.4",
+    "types-requests>=2.31",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+ignore_missing_imports = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/lxcme"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
