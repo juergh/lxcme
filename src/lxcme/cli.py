@@ -64,10 +64,7 @@ def main(
     instance_name: str | None,
     command: tuple[str, ...],
 ) -> None:
-    """Manage and enter LXC instances with seamless user and home directory integration.
-
-    \b
-    """
+    """Manage and enter LXC instances with seamless user and home directory integration."""
     _configure_logging(verbose)
 
     # Strip leading '--' separator if present
