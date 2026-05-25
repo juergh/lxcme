@@ -10,7 +10,6 @@ Handles first-launch provisioning:
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import pylxd.models
@@ -24,14 +23,6 @@ logger = logging.getLogger(__name__)
 SETUP_DONE_KEY = "user.lxcme.setup-done"
 INSTANCE_UID_KEY = "user.lxcme.uid"
 INSTANCE_GID_KEY = "user.lxcme.gid"
-
-
-@dataclass(frozen=True)
-class InstanceUser:
-    """User/group identity as it exists inside the instance."""
-
-    uid: int
-    gid: int
 
 
 def _exec_in(instance: pylxd.models.Instance, command: list[str]) -> tuple[int, str, str]:
