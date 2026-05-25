@@ -203,44 +203,42 @@ def setup_instance_user(
     """Perform full first-launch user provisioning for an instance.
 
     Steps:
-      1. Start instance temporarily for user/group introspection and creation.
+      1. Start instance for user/group introspection, creation, and in-instance setup.
       2. Ensure group and user exist inside the instance.
-      3. Stop instance to apply raw.idmap.
-      4. Configure raw.idmap (host uid/gid -> instance uid/gid).
-      5. Restart instance.
-      6. Set up home directory (mount or empty).
-      7. Configure passwordless sudo.
-      8. Mark setup as done.
+      3. Set up home directory (empty dir, if --no-home).
+      4. Configure passwordless sudo.
+      5. Write raw.idmap config (host uid/gid -> instance uid/gid).
+      6. Attach host home as disk device (if not --no-home).
+      7. Mark setup as done.
+      8. Restart instance to apply idmap and disk device config.
     """
     logger.info("Starting first-launch user setup for instance '%s'...", instance.name)
 
-    # Step 1: start for user/group introspection
+    # Step 1: start for user/group introspection and in-instance setup
     instance.start(wait=True)
 
     # Step 2: ensure group and user
     instance_gid = ensure_group(instance, host_user.groupname)
     instance_uid = ensure_user(instance, host_user.username, host_user.groupname)
 
-    # Step 3: stop to apply idmap (requires instance to be stopped)
-    instance.stop(wait=True)
-
-    # Step 4: configure idmap
-    configure_idmap(instance, host_user, instance_uid, instance_gid)
-
-    # Attach home disk device while stopped (only when mounting host home)
-    if not no_home:
-        setup_home_mount(instance, host_user)
-
-    # Step 5: restart
-    instance.start(wait=True)
-
-    # Step 6: home directory
+    # Step 3: home directory (only needed when not mounting host home)
     if no_home:
         setup_home_directory(instance, host_user, instance_uid, instance_gid)
 
-    # Step 7: passwordless sudo
+    # Step 4: passwordless sudo
     setup_passwordless_sudo(instance, host_user.username)
 
-    # Step 8: mark done, persisting instance uid/gid for subsequent invocations
+    # Step 5: write idmap config (applied on next start)
+    configure_idmap(instance, host_user, instance_uid, instance_gid)
+
+    # Step 6: attach home disk device (applied on next start)
+    if not no_home:
+        setup_home_mount(instance, host_user)
+
+    # Step 7: mark done, persisting instance uid/gid
     mark_setup_done(instance, instance_uid, instance_gid)
+
+    # Step 8: restart to apply idmap and disk device config
+    instance.stop(wait=True)
+    instance.start(wait=True)
     logger.info("First-launch setup complete for instance '%s'.", instance.name)

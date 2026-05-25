@@ -83,10 +83,12 @@ If the image is not cached locally it is downloaded automatically before the con
 The first time an instance is started, `lxcme` provisions it:
 
 1. Ensures the current user and group exist inside the container (creates them if absent).
-2. Configures `raw.idmap` to map the host uid/gid to the uid/gid the user has inside the container.
-3. Attaches the host home directory as a disk device at the same path (or creates an empty home dir if `--no-home` was used).
-4. Grants the user passwordless `sudo` via `/etc/sudoers.d/<user>`.
-5. Stores the container-side uid/gid in the instance config for use on subsequent invocations.
+2. Creates an empty home directory inside the container (only with `--no-home`).
+3. Grants the user passwordless `sudo` via `/etc/sudoers.d/<user>`.
+4. Writes `raw.idmap` config to map the host uid/gid to the uid/gid the user has inside the container.
+5. Attaches the host home directory as a disk device at the same path (skipped with `--no-home`).
+6. Stores the container-side uid/gid in the instance config.
+7. Restarts the container to apply the idmap and disk device config.
 
 Setup runs exactly once and is idempotent — tracked via the `user.lxcme.setup-done` instance config key.
 
