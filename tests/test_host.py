@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-from unittest.mock import MagicMock, mock_open, patch
+from unittest.mock import mock_open, patch
 
 import pytest
 
@@ -75,27 +74,9 @@ class TestMachineToLxcArch:
 
 
 class TestGetHostInfo:
-    def _mock_pw(self, name: str = "alice", uid: int = 1000, gid: int = 1000, home: str = "/home/alice") -> MagicMock:
-        pw = MagicMock()
-        pw.pw_name = name
-        pw.pw_uid = uid
-        pw.pw_gid = gid
-        pw.pw_dir = home
-        return pw
-
-    def _mock_gr(self, name: str = "alice", gid: int = 1000) -> MagicMock:
-        gr = MagicMock()
-        gr.gr_name = name
-        gr.gr_gid = gid
-        return gr
-
     def test_detects_ubuntu(self) -> None:
         with (
             patch("builtins.open", mock_open(read_data=OS_RELEASE_UBUNTU)),
-            patch("os.getuid", return_value=1000),
-            patch("os.getgid", return_value=1000),
-            patch("pwd.getpwuid", return_value=self._mock_pw()),
-            patch("grp.getgrgid", return_value=self._mock_gr()),
             patch("platform.machine", return_value="x86_64"),
         ):
             info = get_host_info()
@@ -103,17 +84,10 @@ class TestGetHostInfo:
         assert info.distro == "ubuntu"
         assert info.release == "noble"
         assert info.arch == "amd64"
-        assert info.user.username == "alice"
-        assert info.user.uid == 1000
-        assert info.user.home == Path("/home/alice")
 
     def test_override_distro_release_arch(self) -> None:
         with (
             patch("builtins.open", mock_open(read_data=OS_RELEASE_UBUNTU)),
-            patch("os.getuid", return_value=1000),
-            patch("os.getgid", return_value=1000),
-            patch("pwd.getpwuid", return_value=self._mock_pw()),
-            patch("grp.getgrgid", return_value=self._mock_gr()),
             patch("platform.machine", return_value="x86_64"),
         ):
             info = get_host_info(distro="debian", release="bookworm", arch="arm64")
@@ -125,10 +99,6 @@ class TestGetHostInfo:
     def test_fedora_falls_back_to_version_id(self) -> None:
         with (
             patch("builtins.open", mock_open(read_data=OS_RELEASE_FEDORA)),
-            patch("os.getuid", return_value=500),
-            patch("os.getgid", return_value=500),
-            patch("pwd.getpwuid", return_value=self._mock_pw(uid=500, gid=500)),
-            patch("grp.getgrgid", return_value=self._mock_gr(gid=500)),
             patch("platform.machine", return_value="x86_64"),
         ):
             info = get_host_info()

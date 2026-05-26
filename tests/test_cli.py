@@ -8,7 +8,8 @@ from unittest.mock import MagicMock, patch
 from click.testing import CliRunner
 
 from lxcme.cli import main
-from lxcme.host import HostInfo, HostUser
+from lxcme.host import HostInfo
+from lxcme.users import User
 
 _INSTANCE_IDS = (1000, 1000)
 
@@ -17,18 +18,22 @@ def _make_host_info(
     distro: str = "ubuntu",
     release: str = "noble",
     arch: str = "amd64",
+) -> HostInfo:
+    return HostInfo(distro=distro, release=release, arch=arch)
+
+
+def _make_user(
     username: str = "alice",
     uid: int = 1000,
     gid: int = 1000,
-) -> HostInfo:
-    user = HostUser(
+) -> User:
+    return User(
         username=username,
         uid=uid,
         gid=gid,
         groupname=username,
         home=Path(f"/home/{username}"),
     )
-    return HostInfo(distro=distro, release=release, arch=arch, user=user)
 
 
 def _make_instance(name: str = "ubuntu-noble-amd64", running: bool = True, setup_done: bool = True) -> MagicMock:
@@ -44,10 +49,12 @@ class TestMainExistingInstance:
     def test_enters_existing_instance_interactively(self) -> None:
         runner = CliRunner()
         host = _make_host_info()
+        user = _make_user()
         instance = _make_instance()
 
         with (
             patch("lxcme.cli.get_host_info", return_value=host),
+            patch("lxcme.cli.get_current_user", return_value=user),
             patch("lxcme.cli.pylxd.Client"),
             patch("lxcme.cli.find_instance", return_value=instance),
             patch("lxcme.cli.is_setup_done", return_value=True),
@@ -64,11 +71,13 @@ class TestMainExistingInstance:
     def test_runs_noninteractive_command(self) -> None:
         runner = CliRunner()
         host = _make_host_info()
+        user = _make_user()
         instance = _make_instance()
 
         exec_result = (0, "output\n", "")
         with (
             patch("lxcme.cli.get_host_info", return_value=host),
+            patch("lxcme.cli.get_current_user", return_value=user),
             patch("lxcme.cli.pylxd.Client"),
             patch("lxcme.cli.find_instance", return_value=instance),
             patch("lxcme.cli.is_setup_done", return_value=True),
@@ -85,10 +94,12 @@ class TestMainExistingInstance:
     def test_passes_root_flag(self) -> None:
         runner = CliRunner()
         host = _make_host_info()
+        user = _make_user()
         instance = _make_instance()
 
         with (
             patch("lxcme.cli.get_host_info", return_value=host),
+            patch("lxcme.cli.get_current_user", return_value=user),
             patch("lxcme.cli.pylxd.Client"),
             patch("lxcme.cli.find_instance", return_value=instance),
             patch("lxcme.cli.is_setup_done", return_value=True),
@@ -104,11 +115,13 @@ class TestMainExistingInstance:
 
     def test_instance_ids_passed_to_exec(self) -> None:
         runner = CliRunner()
-        host = _make_host_info(uid=9999, gid=9999)
+        host = _make_host_info()
+        user = _make_user(uid=9999, gid=9999)
         instance = _make_instance()
 
         with (
             patch("lxcme.cli.get_host_info", return_value=host),
+            patch("lxcme.cli.get_current_user", return_value=user),
             patch("lxcme.cli.pylxd.Client"),
             patch("lxcme.cli.find_instance", return_value=instance),
             patch("lxcme.cli.is_setup_done", return_value=True),
@@ -120,7 +133,7 @@ class TestMainExistingInstance:
             runner.invoke(main, [])
 
         args = mock_exec.call_args[0]
-        # instance_uid and instance_gid should be 500/501, not host's 9999/9999
+        # instance_uid and instance_gid should be 500/501, not user's 9999/9999
         assert 500 in args
         assert 501 in args
 
@@ -129,9 +142,11 @@ class TestMainNewInstance:
     def test_prompts_for_confirmation(self) -> None:
         runner = CliRunner()
         host = _make_host_info()
+        user = _make_user()
 
         with (
             patch("lxcme.cli.get_host_info", return_value=host),
+            patch("lxcme.cli.get_current_user", return_value=user),
             patch("lxcme.cli.pylxd.Client"),
             patch("lxcme.cli.find_instance", return_value=None),
         ):
@@ -143,9 +158,11 @@ class TestMainNewInstance:
     def test_aborts_on_no(self) -> None:
         runner = CliRunner()
         host = _make_host_info()
+        user = _make_user()
 
         with (
             patch("lxcme.cli.get_host_info", return_value=host),
+            patch("lxcme.cli.get_current_user", return_value=user),
             patch("lxcme.cli.pylxd.Client"),
             patch("lxcme.cli.find_instance", return_value=None),
         ):
@@ -156,12 +173,14 @@ class TestMainNewInstance:
     def test_creates_instance_on_yes(self) -> None:
         runner = CliRunner()
         host = _make_host_info()
+        user = _make_user()
         image = MagicMock()
         image.fingerprint = "abc"
         new_instance = _make_instance(setup_done=False)
 
         with (
             patch("lxcme.cli.get_host_info", return_value=host),
+            patch("lxcme.cli.get_current_user", return_value=user),
             patch("lxcme.cli.pylxd.Client"),
             patch("lxcme.cli.find_instance", return_value=None),
             patch("lxcme.cli.ensure_image", return_value=image),
@@ -180,12 +199,14 @@ class TestMainNewInstance:
     def test_no_home_flag_passed_to_setup(self) -> None:
         runner = CliRunner()
         host = _make_host_info()
+        user = _make_user()
         image = MagicMock()
         image.fingerprint = "abc"
         new_instance = _make_instance(setup_done=False)
 
         with (
             patch("lxcme.cli.get_host_info", return_value=host),
+            patch("lxcme.cli.get_current_user", return_value=user),
             patch("lxcme.cli.pylxd.Client"),
             patch("lxcme.cli.find_instance", return_value=None),
             patch("lxcme.cli.ensure_image", return_value=image),
@@ -207,9 +228,11 @@ class TestMainDistroOverrides:
     def test_distro_release_arch_overrides(self) -> None:
         runner = CliRunner()
         host = _make_host_info(distro="debian", release="bookworm", arch="arm64")
+        user = _make_user()
 
         with (
             patch("lxcme.cli.get_host_info", return_value=host) as mock_get_host,
+            patch("lxcme.cli.get_current_user", return_value=user),
             patch("lxcme.cli.pylxd.Client"),
             patch("lxcme.cli.find_instance", return_value=_make_instance()),
             patch("lxcme.cli.is_setup_done", return_value=True),

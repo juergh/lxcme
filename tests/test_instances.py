@@ -7,7 +7,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from lxcme.host import HostUser
 from lxcme.instances import (
     create_instance,
     ensure_running,
@@ -16,10 +15,11 @@ from lxcme.instances import (
     find_instance,
     is_interactive,
 )
+from lxcme.users import User
 
 
-def _make_user(uid: int = 1000, gid: int = 1000) -> HostUser:
-    return HostUser(
+def _make_user(uid: int = 1000, gid: int = 1000) -> User:
+    return User(
         username="alice",
         uid=uid,
         gid=gid,

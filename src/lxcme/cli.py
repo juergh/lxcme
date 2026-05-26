@@ -18,7 +18,7 @@ from lxcme.instances import (
     find_instance,
     is_interactive,
 )
-from lxcme.users import get_instance_user_ids, is_setup_done, setup_instance_user
+from lxcme.users import get_current_user, get_instance_user_ids, is_setup_done, setup_instance_user
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +73,7 @@ def main(
         cmd_list = cmd_list[1:]
 
     host = get_host_info(distro=distro, release=release, arch=arch)
+    user = get_current_user()
     name = _resolve_instance_name(instance_name, host)
     resolved_command = _resolve_command(tuple(cmd_list))
 
@@ -86,8 +87,8 @@ def main(
             f"Instance '{name}' does not exist.\n"
             f"  Image  : {instance_alias(host.distro, host.release, host.arch)}\n"
             f"  Distro : {host.distro} {host.release} ({host.arch})\n"
-            f"  User   : {host.user.username} (uid={host.user.uid}, gid={host.user.gid})\n"
-            f"  Home   : {'(empty inside instance)' if no_home else host.user.home}"
+            f"  User   : {user.username} (uid={user.uid}, gid={user.gid})\n"
+            f"  Home   : {'(empty inside instance)' if no_home else user.home}"
         )
         if not click.confirm("Launch new instance?", default=False):
             click.echo("Aborted.")
@@ -101,7 +102,7 @@ def main(
 
     # Run first-launch setup if needed
     if not is_setup_done(instance):
-        setup_instance_user(instance, host.user, no_home=no_home)
+        setup_instance_user(instance, user, no_home=no_home)
 
     ensure_running(instance)
 
@@ -109,11 +110,11 @@ def main(
     instance_uid, instance_gid = get_instance_user_ids(instance)
 
     if is_interactive(resolved_command):
-        exec_interactive(name, host.user, resolved_command, instance_uid, instance_gid, as_root=root)
+        exec_interactive(name, user, resolved_command, instance_uid, instance_gid, as_root=root)
         # exec_interactive replaces the process; code below is unreachable
     else:
         exit_code, stdout, stderr = exec_noninteractive(
-            instance, resolved_command, host.user, instance_uid, instance_gid, as_root=root
+            instance, resolved_command, user, instance_uid, instance_gid, as_root=root
         )
         if stdout:
             click.echo(stdout, nl=False)

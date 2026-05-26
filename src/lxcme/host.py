@@ -1,24 +1,9 @@
-"""Host system introspection: distro, release, architecture, current user."""
+"""Host system introspection: distro, release, architecture."""
 
 from __future__ import annotations
 
-import grp
-import os
 import platform
-import pwd
 from dataclasses import dataclass
-from pathlib import Path
-
-
-@dataclass(frozen=True)
-class HostUser:
-    """Current user's identity and home directory."""
-
-    username: str
-    uid: int
-    gid: int
-    groupname: str
-    home: Path
 
 
 @dataclass(frozen=True)
@@ -28,7 +13,6 @@ class HostInfo:
     distro: str
     release: str
     arch: str
-    user: HostUser
 
 
 def _parse_os_release() -> dict[str, str]:
@@ -56,22 +40,10 @@ def get_host_info(
     resolved_release = (release or os_release.get("VERSION_CODENAME") or os_release.get("VERSION_ID", "")).lower()
     resolved_arch = arch or _machine_to_lxc_arch(platform.machine())
 
-    pw = pwd.getpwuid(os.getuid())
-    gr = grp.getgrgid(os.getgid())
-
-    user = HostUser(
-        username=pw.pw_name,
-        uid=pw.pw_uid,
-        gid=gr.gr_gid,
-        groupname=gr.gr_name,
-        home=Path(pw.pw_dir),
-    )
-
     return HostInfo(
         distro=resolved_distro,
         release=resolved_release,
         arch=resolved_arch,
-        user=user,
     )
 
 

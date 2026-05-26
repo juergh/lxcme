@@ -7,11 +7,11 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from lxcme.host import HostUser
 from lxcme.users import (
     INSTANCE_GID_KEY,
     INSTANCE_UID_KEY,
     SETUP_DONE_KEY,
+    User,
     configure_idmap,
     ensure_group,
     ensure_user,
@@ -25,8 +25,8 @@ from lxcme.users import (
 )
 
 
-def _make_host_user(uid: int = 1000, gid: int = 1000) -> HostUser:
-    return HostUser(
+def _make_user(uid: int = 1000, gid: int = 1000) -> User:
+    return User(
         username="alice",
         uid=uid,
         gid=gid,
@@ -111,9 +111,9 @@ class TestConfigureIdmap:
     def test_sets_raw_idmap(self) -> None:
         instance = MagicMock()
         instance.config = {}
-        host_user = _make_host_user(uid=1234, gid=5678)
+        user = _make_user(uid=1234, gid=5678)
 
-        configure_idmap(instance, host_user, instance_uid=1000, instance_gid=1000)
+        configure_idmap(instance, user, instance_uid=1000, instance_gid=1000)
 
         assert "raw.idmap" in instance.config
         assert "uid 1234 1000" in instance.config["raw.idmap"]
@@ -125,9 +125,9 @@ class TestSetupHomeMount:
     def test_attaches_disk_device(self) -> None:
         instance = MagicMock()
         instance.devices = {}
-        host_user = _make_host_user()
+        user = _make_user()
 
-        setup_home_mount(instance, host_user)
+        setup_home_mount(instance, user)
 
         assert "home" in instance.devices
         device = instance.devices["home"]
@@ -142,7 +142,7 @@ class TestSetupHomeDirectory:
         instance = MagicMock()
         instance.execute.return_value = _make_exec_result(exit_code=0)
 
-        setup_home_directory(instance, _make_host_user(), instance_uid=1000, instance_gid=1000)
+        setup_home_directory(instance, _make_user(), instance_uid=1000, instance_gid=1000)
 
         calls = [c[0][0] for c in instance.execute.call_args_list]
         assert any("mkdir" in str(c) for c in calls)
@@ -153,7 +153,7 @@ class TestSetupHomeDirectory:
         instance.execute.return_value = _make_exec_result(exit_code=1, stderr="permission denied")
 
         with pytest.raises(RuntimeError, match="Failed to create home directory"):
-            setup_home_directory(instance, _make_host_user(), 1000, 1000)
+            setup_home_directory(instance, _make_user(), 1000, 1000)
 
 
 class TestSetupPasswordlessSudo:
@@ -222,7 +222,7 @@ class TestSetupInstanceUser:
         instance = MagicMock()
         instance.config = {}
         instance.devices = {}
-        host_user = _make_host_user()
+        user = _make_user()
 
         # Sequence: start, ensure_group (getent found), ensure_user (id found),
         # stop, start, sudo (bash+chmod), sudo (usermod), mark done
@@ -233,7 +233,7 @@ class TestSetupInstanceUser:
             _make_exec_result(exit_code=0),  # usermod -aG sudo
         ]
 
-        setup_instance_user(instance, host_user, no_home=False)
+        setup_instance_user(instance, user, no_home=False)
 
         instance.start.assert_called()
         instance.stop.assert_called_once_with(wait=True)
@@ -244,7 +244,7 @@ class TestSetupInstanceUser:
         instance = MagicMock()
         instance.config = {}
         instance.devices = {}
-        host_user = _make_host_user()
+        user = _make_user()
 
         instance.execute.side_effect = [
             _make_exec_result(stdout="alice:x:1000:\n"),  # getent group
@@ -255,7 +255,7 @@ class TestSetupInstanceUser:
             _make_exec_result(exit_code=0),  # usermod -aG sudo
         ]
 
-        setup_instance_user(instance, host_user, no_home=True)
+        setup_instance_user(instance, user, no_home=True)
 
         assert "home" not in instance.devices
         assert SETUP_DONE_KEY in instance.config

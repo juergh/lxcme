@@ -11,7 +11,7 @@ import pylxd
 import pylxd.models
 
 if TYPE_CHECKING:
-    from lxcme.host import HostUser
+    from lxcme.users import User
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +65,7 @@ def ensure_running(instance: pylxd.models.Instance) -> None:
 
 def exec_interactive(
     instance_name: str,
-    user: HostUser,
+    user: User,
     command: list[str],
     instance_uid: int,
     instance_gid: int,
@@ -102,7 +102,7 @@ def exec_interactive(
 def exec_noninteractive(
     instance: pylxd.models.Instance,
     command: list[str],
-    user: HostUser,
+    user: User,
     instance_uid: int,
     instance_gid: int,
     *,

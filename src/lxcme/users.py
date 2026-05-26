@@ -9,13 +9,14 @@ Handles first-launch provisioning:
 
 from __future__ import annotations
 
+import grp
 import logging
-from typing import TYPE_CHECKING
+import os
+import pwd
+from dataclasses import dataclass
+from pathlib import Path
 
 import pylxd.models
-
-if TYPE_CHECKING:
-    from lxcme.host import HostUser
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +24,34 @@ logger = logging.getLogger(__name__)
 SETUP_DONE_KEY = "user.lxcme.setup-done"
 INSTANCE_UID_KEY = "user.lxcme.uid"
 INSTANCE_GID_KEY = "user.lxcme.gid"
+
+
+@dataclass(frozen=True)
+class User:
+    """Current user's identity and home directory."""
+
+    username: str
+    uid: int
+    gid: int
+    groupname: str
+    home: Path
+
+
+def get_current_user() -> User:
+    """Detect the current host user's identity from the OS.
+
+    Returns:
+        User populated from the current process's uid/gid.
+    """
+    pw = pwd.getpwuid(os.getuid())
+    gr = grp.getgrgid(os.getgid())
+    return User(
+        username=pw.pw_name,
+        uid=pw.pw_uid,
+        gid=gr.gr_gid,
+        groupname=gr.gr_name,
+        home=Path(pw.pw_dir),
+    )
 
 
 def _exec_in(instance: pylxd.models.Instance, command: list[str]) -> tuple[int, str, str]:
@@ -98,20 +127,20 @@ def ensure_user(instance: pylxd.models.Instance, username: str, groupname: str) 
 
 def configure_idmap(
     instance: pylxd.models.Instance,
-    host_user: HostUser,
+    user: User,
     instance_uid: int,
     instance_gid: int,
 ) -> None:
     """Configure raw.idmap to map host uid/gid to instance uid/gid."""
-    idmap = f"uid {host_user.uid} {instance_uid}\ngid {host_user.gid} {instance_gid}"
+    idmap = f"uid {user.uid} {instance_uid}\ngid {user.gid} {instance_gid}"
     instance.config["raw.idmap"] = idmap
     instance.save(wait=True)
     logger.info("Configured raw.idmap: %s", idmap.replace("\n", " | "))
 
 
-def setup_home_mount(instance: pylxd.models.Instance, host_user: HostUser) -> None:
+def setup_home_mount(instance: pylxd.models.Instance, user: User) -> None:
     """Attach the host home directory as a disk device inside the instance."""
-    home_str = str(host_user.home)
+    home_str = str(user.home)
     device_name = "home"
     instance.devices[device_name] = {
         "type": "disk",
@@ -124,12 +153,12 @@ def setup_home_mount(instance: pylxd.models.Instance, host_user: HostUser) -> No
 
 def setup_home_directory(
     instance: pylxd.models.Instance,
-    host_user: HostUser,
+    user: User,
     instance_uid: int,
     instance_gid: int,
 ) -> None:
     """Create an empty home directory inside the instance."""
-    home_str = str(host_user.home)
+    home_str = str(user.home)
     rc, _, stderr = _exec_in(instance, ["mkdir", "-p", home_str])
     if rc != 0:
         raise RuntimeError(f"Failed to create home directory '{home_str}': {stderr.strip()}")
@@ -187,7 +216,7 @@ def get_instance_user_ids(instance: pylxd.models.Instance) -> tuple[int, int]:
 
 def setup_instance_user(
     instance: pylxd.models.Instance,
-    host_user: HostUser,
+    user: User,
     *,
     no_home: bool = False,
 ) -> None:
@@ -209,22 +238,22 @@ def setup_instance_user(
     instance.start(wait=True)
 
     # Step 2: ensure group and user
-    instance_gid = ensure_group(instance, host_user.groupname)
-    instance_uid = ensure_user(instance, host_user.username, host_user.groupname)
+    instance_gid = ensure_group(instance, user.groupname)
+    instance_uid = ensure_user(instance, user.username, user.groupname)
 
     # Step 3: home directory (only needed when not mounting host home)
     if no_home:
-        setup_home_directory(instance, host_user, instance_uid, instance_gid)
+        setup_home_directory(instance, user, instance_uid, instance_gid)
 
     # Step 4: passwordless sudo
-    setup_passwordless_sudo(instance, host_user.username)
+    setup_passwordless_sudo(instance, user.username)
 
     # Step 5: write idmap config (applied on next start)
-    configure_idmap(instance, host_user, instance_uid, instance_gid)
+    configure_idmap(instance, user, instance_uid, instance_gid)
 
     # Step 6: attach home disk device (applied on next start)
     if not no_home:
-        setup_home_mount(instance, host_user)
+        setup_home_mount(instance, user)
 
     # Step 7: mark done, persisting instance uid/gid
     mark_setup_done(instance, instance_uid, instance_gid)
