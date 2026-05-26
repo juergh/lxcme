@@ -91,7 +91,7 @@ def main(
             click.echo("Aborted.")
             sys.exit(0)
 
-        image = ensure_image(client, target.distro, target.image_alias)
+        image = ensure_image(client, target.distro, target.release, target.image_alias)
         instance = create_instance(client, name, image)
 
     assert instance is not None

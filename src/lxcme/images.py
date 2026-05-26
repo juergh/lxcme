@@ -13,8 +13,20 @@ DEFAULT_REMOTE = "https://images.linuxcontainers.org"
 
 
 def get_remote(distro: str) -> str:
-    """Return the appropriate LXC remote for the given distribution."""
+    """Return the appropriate simplestreams remote URL for the given distribution."""
     return UBUNTU_REMOTE if distro.lower() == "ubuntu" else DEFAULT_REMOTE
+
+
+def get_remote_alias(distro: str, release: str) -> str:
+    """Return the simplestreams alias used to look up an image on the remote.
+
+    Ubuntu daily uses bare codenames (e.g. ``resolute``).
+    The linuxcontainers.org remote uses ``distro/release`` (e.g. ``debian/bookworm``).
+    In both cases the LXD daemon resolves the host architecture automatically.
+    """
+    if distro.lower() == "ubuntu":
+        return release
+    return f"{distro}/{release}"
 
 
 def find_local_image(client: pylxd.Client, alias: str) -> pylxd.models.Image | None:
@@ -26,20 +38,32 @@ def find_local_image(client: pylxd.Client, alias: str) -> pylxd.models.Image | N
     return None
 
 
-def ensure_image(client: pylxd.Client, distro: str, alias: str) -> pylxd.models.Image:
-    """Ensure a local LXC image exists for the given alias, downloading if necessary.
+def ensure_image(
+    client: pylxd.Client, distro: str, release: str, local_alias: str
+) -> pylxd.models.Image:
+    """Ensure a local LXC image exists, downloading from simplestreams if necessary.
 
-    Checks the local image store first. If not found, downloads from the
-    appropriate simplestreams remote URL (Ubuntu daily or linuxcontainers).
+    Uses ``local_alias`` for local cache lookups and display. Derives the correct
+    simplestreams alias (e.g. ``resolute`` or ``debian/bookworm``) automatically.
+
+    Args:
+        client: Active pylxd client.
+        distro: Distribution name (e.g. ``ubuntu``, ``debian``).
+        release: Release codename or version (e.g. ``resolute``, ``bookworm``).
+        local_alias: Full local alias used for cache lookup (e.g. ``ubuntu-resolute-amd64``).
+
+    Returns:
+        The local pylxd Image object, downloaded if it was not already cached.
     """
-    image = find_local_image(client, alias)
+    image = find_local_image(client, local_alias)
     if image is not None:
-        logger.info("Using cached local image: %s", alias)
+        logger.info("Using cached local image: %s", local_alias)
         return image
 
     remote = get_remote(distro)
-    logger.info("Downloading image '%s' from remote '%s'...", alias, remote)
+    remote_alias = get_remote_alias(distro, release)
+    logger.info("Downloading image '%s' from remote '%s'...", local_alias, remote)
 
-    image = client.images.create_from_simplestreams(remote, alias)
-    logger.info("Image '%s' downloaded successfully.", alias)
+    image = client.images.create_from_simplestreams(remote, remote_alias)
+    logger.info("Image '%s' downloaded successfully.", local_alias)
     return image

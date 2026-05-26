@@ -4,7 +4,14 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from lxcme.images import DEFAULT_REMOTE, UBUNTU_REMOTE, ensure_image, find_local_image, get_remote
+from lxcme.images import (
+    DEFAULT_REMOTE,
+    UBUNTU_REMOTE,
+    ensure_image,
+    find_local_image,
+    get_remote,
+    get_remote_alias,
+)
 
 
 def _make_image(aliases: list[str]) -> MagicMock:
@@ -26,6 +33,20 @@ class TestGetRemote:
 
     def test_fedora_returns_default(self) -> None:
         assert get_remote("fedora") == DEFAULT_REMOTE
+
+
+class TestGetRemoteAlias:
+    def test_ubuntu_returns_codename(self) -> None:
+        assert get_remote_alias("ubuntu", "noble") == "noble"
+
+    def test_ubuntu_case_insensitive(self) -> None:
+        assert get_remote_alias("Ubuntu", "resolute") == "resolute"
+
+    def test_non_ubuntu_returns_distro_slash_release(self) -> None:
+        assert get_remote_alias("debian", "bookworm") == "debian/bookworm"
+
+    def test_fedora_returns_distro_slash_release(self) -> None:
+        assert get_remote_alias("fedora", "40") == "fedora/40"
 
 
 class TestFindLocalImage:
@@ -57,7 +78,7 @@ class TestEnsureImage:
         img = _make_image(["ubuntu-noble-amd64"])
         client.images.all.return_value = [img]
 
-        result = ensure_image(client, "ubuntu", "ubuntu-noble-amd64")
+        result = ensure_image(client, "ubuntu", "noble", "ubuntu-noble-amd64")
         assert result is img
         client.images.create_from_simplestreams.assert_not_called()
 
@@ -67,14 +88,14 @@ class TestEnsureImage:
         downloaded = _make_image(["ubuntu-noble-amd64"])
         client.images.create_from_simplestreams.return_value = downloaded
 
-        result = ensure_image(client, "ubuntu", "ubuntu-noble-amd64")
+        result = ensure_image(client, "ubuntu", "noble", "ubuntu-noble-amd64")
         assert result is downloaded
-        client.images.create_from_simplestreams.assert_called_once_with(UBUNTU_REMOTE, "ubuntu-noble-amd64")
+        client.images.create_from_simplestreams.assert_called_once_with(UBUNTU_REMOTE, "noble")
 
     def test_uses_images_remote_for_non_ubuntu(self) -> None:
         client = MagicMock()
         client.images.all.return_value = []
         client.images.create_from_simplestreams.return_value = _make_image(["debian-bookworm-amd64"])
 
-        ensure_image(client, "debian", "debian-bookworm-amd64")
-        client.images.create_from_simplestreams.assert_called_once_with(DEFAULT_REMOTE, "debian-bookworm-amd64")
+        ensure_image(client, "debian", "bookworm", "debian-bookworm-amd64")
+        client.images.create_from_simplestreams.assert_called_once_with(DEFAULT_REMOTE, "debian/bookworm")
