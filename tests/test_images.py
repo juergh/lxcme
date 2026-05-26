@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from lxcme.images import DEFAULT_REMOTE, UBUNTU_REMOTE, ensure_image, find_local_image, get_remote
+from lxcme.images import DEFAULT_REMOTE, UBUNTU_REMOTE, ensure_image, find_local_image, get_remote, image_alias
 
 
 def _make_image(aliases: list[str]) -> MagicMock:
@@ -78,3 +78,14 @@ class TestEnsureImage:
 
         ensure_image(client, "debian", "debian-bookworm-amd64")
         client.images.create_from_simplestreams.assert_called_once_with(DEFAULT_REMOTE, "debian-bookworm-amd64")
+
+
+class TestImageAlias:
+    def test_ubuntu(self) -> None:
+        assert image_alias("ubuntu", "noble", "amd64") == "ubuntu-noble-amd64"
+
+    def test_non_ubuntu(self) -> None:
+        assert image_alias("debian", "bookworm", "arm64") == "debian-bookworm-arm64"
+
+    def test_separates_with_hyphens(self) -> None:
+        assert image_alias("fedora", "40", "amd64") == "fedora-40-amd64"

@@ -9,7 +9,7 @@ import click
 import pylxd
 
 from lxcme.host import HostInfo, get_host_info, instance_alias
-from lxcme.images import ensure_image
+from lxcme.images import ensure_image, image_alias
 from lxcme.instances import (
     create_instance,
     ensure_running,
@@ -94,7 +94,7 @@ def main(
             click.echo("Aborted.")
             sys.exit(0)
 
-        alias = instance_alias(host.distro, host.release, host.arch)
+        alias = image_alias(host.distro, host.release, host.arch)
         image = ensure_image(client, host.distro, alias)
         instance = create_instance(client, name, image)
 

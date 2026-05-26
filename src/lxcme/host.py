@@ -61,5 +61,5 @@ def _machine_to_lxc_arch(machine: str) -> str:
 
 
 def instance_alias(distro: str, release: str, arch: str) -> str:
-    """Return the canonical LXC image alias / instance name triplet."""
+    """Return the canonical instance name derived from distro, release, and arch."""
     return f"{distro}-{release}-{arch}"
