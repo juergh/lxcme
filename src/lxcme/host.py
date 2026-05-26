@@ -8,11 +8,37 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class HostInfo:
-    """Host system information used to derive LXC image aliases and instance names."""
+    """Host system information as detected from /etc/os-release and platform."""
 
     distro: str
     release: str
     arch: str
+
+
+@dataclass(frozen=True)
+class TargetInfo:
+    """Target instance configuration, derived from host info with optional overrides.
+
+    Provides :attr:`instance_alias` and :attr:`image_alias` as the canonical
+    names for the LXC instance and its source image respectively.
+    """
+
+    distro: str
+    release: str
+    arch: str
+    host_distro: str
+
+    @property
+    def instance_alias(self) -> str:
+        """Instance name: ``release-arch`` when distro matches host, else ``distro-release-arch``."""
+        if self.distro == self.host_distro:
+            return f"{self.release}-{self.arch}"
+        return f"{self.distro}-{self.release}-{self.arch}"
+
+    @property
+    def image_alias(self) -> str:
+        """Image alias: always the full ``distro-release-arch`` triple."""
+        return f"{self.distro}-{self.release}-{self.arch}"
 
 
 def _parse_os_release() -> dict[str, str]:
@@ -28,22 +54,28 @@ def _parse_os_release() -> dict[str, str]:
     return result
 
 
-def get_host_info(
+def get_host_info() -> HostInfo:
+    """Detect host system information from /etc/os-release and platform."""
+    os_release = _parse_os_release()
+    return HostInfo(
+        distro=os_release.get("ID", "").lower(),
+        release=(os_release.get("VERSION_CODENAME") or os_release.get("VERSION_ID", "")).lower(),
+        arch=_machine_to_lxc_arch(platform.machine()),
+    )
+
+
+def get_target_info(
+    host: HostInfo,
     distro: str | None = None,
     release: str | None = None,
     arch: str | None = None,
-) -> HostInfo:
-    """Detect host system information, with optional overrides."""
-    os_release = _parse_os_release()
-
-    resolved_distro = (distro or os_release.get("ID", "")).lower()
-    resolved_release = (release or os_release.get("VERSION_CODENAME") or os_release.get("VERSION_ID", "")).lower()
-    resolved_arch = arch or _machine_to_lxc_arch(platform.machine())
-
-    return HostInfo(
-        distro=resolved_distro,
-        release=resolved_release,
-        arch=resolved_arch,
+) -> TargetInfo:
+    """Build a TargetInfo from host info with optional distro/release/arch overrides."""
+    return TargetInfo(
+        distro=(distro or host.distro).lower(),
+        release=(release or host.release).lower(),
+        arch=arch or host.arch,
+        host_distro=host.distro,
     )
 
 
@@ -58,8 +90,3 @@ def _machine_to_lxc_arch(machine: str) -> str:
         "riscv64": "riscv64",
     }
     return mapping.get(machine, machine)
-
-
-def instance_alias(distro: str, release: str, arch: str) -> str:
-    """Return the canonical instance name derived from distro, release, and arch."""
-    return f"{distro}-{release}-{arch}"

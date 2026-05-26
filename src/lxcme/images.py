@@ -45,8 +45,3 @@ def ensure_image(client: pylxd.Client, distro: str, alias: str) -> pylxd.models.
     image = client.images.create_from_simplestreams(remote, alias)
     logger.info("Image '%s' downloaded successfully.", alias)
     return image
-
-
-def image_alias(distro: str, release: str, arch: str) -> str:
-    """Return the canonical LXC image alias derived from distro, release, and arch."""
-    return f"{distro}-{release}-{arch}"

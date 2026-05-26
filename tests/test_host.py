@@ -7,22 +7,18 @@ from unittest.mock import mock_open, patch
 import pytest
 
 from lxcme.host import (
+    HostInfo,
+    TargetInfo,
     _machine_to_lxc_arch,
     _parse_os_release,
     get_host_info,
-    instance_alias,
+    get_target_info,
 )
 
 OS_RELEASE_UBUNTU = """
 ID=ubuntu
 VERSION_CODENAME=noble
 VERSION_ID=24.04
-""".strip()
-
-OS_RELEASE_DEBIAN = """
-ID=debian
-VERSION_CODENAME=bookworm
-VERSION_ID=12
 """.strip()
 
 OS_RELEASE_FEDORA = """
@@ -85,17 +81,6 @@ class TestGetHostInfo:
         assert info.release == "noble"
         assert info.arch == "amd64"
 
-    def test_override_distro_release_arch(self) -> None:
-        with (
-            patch("builtins.open", mock_open(read_data=OS_RELEASE_UBUNTU)),
-            patch("platform.machine", return_value="x86_64"),
-        ):
-            info = get_host_info(distro="debian", release="bookworm", arch="arm64")
-
-        assert info.distro == "debian"
-        assert info.release == "bookworm"
-        assert info.arch == "arm64"
-
     def test_fedora_falls_back_to_version_id(self) -> None:
         with (
             patch("builtins.open", mock_open(read_data=OS_RELEASE_FEDORA)),
@@ -106,10 +91,55 @@ class TestGetHostInfo:
         assert info.distro == "fedora"
         assert info.release == "40"
 
+    def test_no_overrides_accepted(self) -> None:
+        import inspect
 
-class TestInstanceAlias:
-    def test_triplet_format(self) -> None:
-        assert instance_alias("ubuntu", "noble", "amd64") == "ubuntu-noble-amd64"
+        assert inspect.signature(get_host_info).parameters == {}
 
-    def test_custom_values(self) -> None:
-        assert instance_alias("debian", "bookworm", "arm64") == "debian-bookworm-arm64"
+
+class TestGetTargetInfo:
+    def _host(self) -> HostInfo:
+        return HostInfo(distro="ubuntu", release="noble", arch="amd64")
+
+    def test_defaults_to_host_values(self) -> None:
+        target = get_target_info(self._host())
+        assert target.distro == "ubuntu"
+        assert target.release == "noble"
+        assert target.arch == "amd64"
+
+    def test_overrides_distro_release_arch(self) -> None:
+        target = get_target_info(self._host(), distro="debian", release="bookworm", arch="arm64")
+        assert target.distro == "debian"
+        assert target.release == "bookworm"
+        assert target.arch == "arm64"
+
+    def test_host_distro_is_always_host(self) -> None:
+        target = get_target_info(self._host(), distro="debian")
+        assert target.host_distro == "ubuntu"
+
+    def test_overrides_are_lowercased(self) -> None:
+        target = get_target_info(self._host(), distro="Debian", release="Bookworm")
+        assert target.distro == "debian"
+        assert target.release == "bookworm"
+
+
+class TestTargetInfo:
+    def test_instance_alias_same_distro_omits_distro(self) -> None:
+        target = TargetInfo(distro="ubuntu", release="noble", arch="amd64", host_distro="ubuntu")
+        assert target.instance_alias == "noble-amd64"
+
+    def test_instance_alias_different_distro_includes_distro(self) -> None:
+        target = TargetInfo(distro="debian", release="bookworm", arch="amd64", host_distro="ubuntu")
+        assert target.instance_alias == "debian-bookworm-amd64"
+
+    def test_image_alias_always_full_triple(self) -> None:
+        target = TargetInfo(distro="ubuntu", release="noble", arch="amd64", host_distro="ubuntu")
+        assert target.image_alias == "ubuntu-noble-amd64"
+
+    def test_image_alias_cross_distro(self) -> None:
+        target = TargetInfo(distro="debian", release="bookworm", arch="arm64", host_distro="ubuntu")
+        assert target.image_alias == "debian-bookworm-arm64"
+
+    def test_instance_alias_comparison_is_case_sensitive(self) -> None:
+        target = TargetInfo(distro="ubuntu", release="noble", arch="amd64", host_distro="Ubuntu")
+        assert target.instance_alias == "ubuntu-noble-amd64"

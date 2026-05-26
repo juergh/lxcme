@@ -8,8 +8,8 @@ import sys
 import click
 import pylxd
 
-from lxcme.host import HostInfo, get_host_info, instance_alias
-from lxcme.images import ensure_image, image_alias
+from lxcme.host import get_host_info, get_target_info
+from lxcme.images import ensure_image
 from lxcme.instances import (
     create_instance,
     ensure_running,
@@ -31,10 +31,6 @@ def _configure_logging(verbose: bool) -> None:
 def _resolve_command(command: tuple[str, ...]) -> list[str]:
     """Return the command list, defaulting to bash --login."""
     return list(command) if command else ["bash", "--login"]
-
-
-def _resolve_instance_name(name: str | None, host: HostInfo) -> str:
-    return name or instance_alias(host.distro, host.release, host.arch)
 
 
 @click.command(
@@ -72,9 +68,10 @@ def main(
     if cmd_list and cmd_list[0] == "--":
         cmd_list = cmd_list[1:]
 
-    host = get_host_info(distro=distro, release=release, arch=arch)
+    host = get_host_info()
+    target = get_target_info(host, distro=distro, release=release, arch=arch)
     user = get_current_user()
-    name = _resolve_instance_name(instance_name, host)
+    name = instance_name or target.instance_alias
     resolved_command = _resolve_command(tuple(cmd_list))
 
     client = pylxd.Client()
@@ -85,8 +82,8 @@ def main(
     if is_new:
         click.echo(
             f"Instance '{name}' does not exist.\n"
-            f"  Image  : {instance_alias(host.distro, host.release, host.arch)}\n"
-            f"  Distro : {host.distro} {host.release} ({host.arch})\n"
+            f"  Image  : {target.image_alias}\n"
+            f"  Distro : {target.distro} {target.release} ({target.arch})\n"
             f"  User   : {user.username} (uid={user.uid}, gid={user.gid})\n"
             f"  Home   : {'(empty inside instance)' if no_home else user.home}"
         )
@@ -94,8 +91,7 @@ def main(
             click.echo("Aborted.")
             sys.exit(0)
 
-        alias = image_alias(host.distro, host.release, host.arch)
-        image = ensure_image(client, host.distro, alias)
+        image = ensure_image(client, target.distro, target.image_alias)
         instance = create_instance(client, name, image)
 
     assert instance is not None
