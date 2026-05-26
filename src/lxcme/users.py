@@ -222,17 +222,19 @@ def setup_instance_user(
     # Step 4: passwordless sudo
     setup_passwordless_sudo(instance, user.username)
 
-    # Step 5: write idmap config (applied on next start)
+    # Step 5: stop instance to apply idmap and disk device config
+    instance.stop(wait=True)
+
+    # Step 6: write idmap config (must be applied while stopped)
     configure_idmap(instance, user, instance_uid, instance_gid)
 
-    # Step 6: attach home disk device (applied on next start)
+    # Step 7: attach home disk device (must be applied while stopped)
     if not no_home:
         setup_home_mount(instance, user)
 
-    # Step 7: mark done, persisting instance uid/gid
+    # Step 8: mark done, persisting instance uid/gid
     mark_setup_done(instance, instance_uid, instance_gid)
 
-    # Step 8: restart to apply idmap and disk device config
-    instance.stop(wait=True)
+    # Step 9: start instance to apply idmap and disk device config
     instance.start(wait=True)
     logger.info("First-launch setup complete for instance '%s'.", instance.name)
