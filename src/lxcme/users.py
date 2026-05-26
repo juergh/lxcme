@@ -208,8 +208,10 @@ def setup_instance_user(
     """Perform full first-launch user provisioning for instance."""
     logger.info("Starting first-launch user setup for instance '%s'...", instance.name)
 
-    # Step 1: start for user/group introspection and in-instance setup
-    instance.start(wait=True)
+    # Step 1: ensure instance is running for user/group introspection and in-instance setup
+    instance.sync()
+    if instance.status != "Running":
+        instance.start(wait=True)
 
     # Step 2: ensure group and user
     instance_gid = ensure_group(instance, user.groupname)
