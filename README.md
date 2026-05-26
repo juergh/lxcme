@@ -67,7 +67,12 @@ lxcme --no-home
 
 ### Instance naming
 
-Instance names and image aliases are triplets: `<distro>-<release>-<arch>` (e.g. `ubuntu-noble-amd64`). If no instance name is given, this triplet is used. Distro, release, and arch are auto-detected from the host via `/etc/os-release` and `platform.machine()`.
+Distro, release, and arch are auto-detected from the host via `/etc/os-release` and `platform.machine()`. If no instance name is given, one is derived automatically:
+
+- **Same distro as host**: `<release>-<arch>` (e.g. `noble-amd64`)
+- **Different distro**: `<distro>-<release>-<arch>` (e.g. `debian-bookworm-amd64`)
+
+The image alias used for lookup and download is always the full `<distro>-<release>-<arch>` triple regardless of the host distro.
 
 ### Image remotes
 
@@ -112,7 +117,7 @@ Pass `--root` to run as root instead.
 ```
 src/lxcme/
 ├── cli.py        # click entrypoint
-├── host.py       # host distro/release/arch/user detection
+├── host.py       # host detection (HostInfo) and target configuration (TargetInfo)
 ├── images.py     # local image lookup and remote download
 ├── instances.py  # container lifecycle and exec
 └── users.py      # first-launch provisioning
