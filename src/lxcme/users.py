@@ -226,6 +226,7 @@ def setup_instance_user(
 
     # Step 5: stop instance to apply idmap and disk device config
     instance.stop(wait=True)
+    instance.sync()
 
     # Step 6: write idmap config (must be applied while stopped)
     configure_idmap(instance, user, instance_uid, instance_gid)
