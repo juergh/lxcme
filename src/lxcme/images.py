@@ -8,10 +8,8 @@ import pylxd
 
 logger = logging.getLogger(__name__)
 
-# Remote used for Ubuntu images (daily builds)
-UBUNTU_REMOTE = "ubuntu-daily"
-# Remote used for all other distributions
-DEFAULT_REMOTE = "images"
+UBUNTU_REMOTE = "https://cloud-images.ubuntu.com/daily"
+DEFAULT_REMOTE = "https://images.linuxcontainers.org"
 
 
 def get_remote(distro: str) -> str:
@@ -32,7 +30,7 @@ def ensure_image(client: pylxd.Client, distro: str, alias: str) -> pylxd.models.
     """Ensure a local LXC image exists for the given alias, downloading if necessary.
 
     Checks the local image store first. If not found, downloads from the
-    appropriate remote (ubuntu-daily for Ubuntu, images: for others).
+    appropriate simplestreams remote URL (Ubuntu daily or linuxcontainers).
     """
     image = find_local_image(client, alias)
     if image is not None:
