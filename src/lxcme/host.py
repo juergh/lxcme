@@ -26,14 +26,16 @@ class TargetInfo:
 
     @property
     def instance_alias(self) -> str:
-        """Instance name (release-arch if distro matches host, else distro-release-arch)."""
-        if self.distro == self.host_distro:
+        """Instance name (release-arch for Ubuntu/Debian, else distro-release-arch)."""
+        if self.distro in ("ubuntu", "debian"):
             return f"{self.release}-{self.arch}"
         return f"{self.distro}-{self.release}-{self.arch}"
 
     @property
     def image_alias(self) -> str:
-        """Image alias (always distro-release-arch)."""
+        """Image alias (release-arch for Ubuntu/Debian, else distro-release-arch)."""
+        if self.distro in ("ubuntu", "debian"):
+            return f"{self.release}-{self.arch}"
         return f"{self.distro}-{self.release}-{self.arch}"
 
 

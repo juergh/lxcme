@@ -240,13 +240,40 @@ class TestMainDistroOverrides:
 
         mock_get_target.assert_called_once_with(_HOST_UBUNTU, distro="debian", release="bookworm", arch="arm64")
 
-    def test_cross_distro_instance_name_includes_distro(self) -> None:
+    def test_non_ubuntu_debian_instance_name_includes_distro(self) -> None:
+        runner = CliRunner()
+        user = _make_user()
+        fedora_target = TargetInfo(distro="fedora", release="40", arch="amd64", host_distro="ubuntu")
+        image = MagicMock()
+        image.fingerprint = "abc"
+        new_instance = _make_instance(name="fedora-40-amd64", setup_done=False)
+
+        with (
+            patch("lxcme.cli.get_host_info", return_value=_HOST_UBUNTU),
+            patch("lxcme.cli.get_target_info", return_value=fedora_target),
+            patch("lxcme.cli.get_current_user", return_value=user),
+            patch("lxcme.cli.pylxd.Client"),
+            patch("lxcme.cli.find_instance", return_value=None),
+            patch("lxcme.cli.ensure_image", return_value=image),
+            patch("lxcme.cli.create_instance", return_value=new_instance) as mock_create,
+            patch("lxcme.cli.is_setup_done", return_value=False),
+            patch("lxcme.cli.setup_instance_user"),
+            patch("lxcme.cli.ensure_running"),
+            patch("lxcme.cli.get_instance_user_ids", return_value=_INSTANCE_IDS),
+            patch("lxcme.cli.is_interactive", return_value=True),
+            patch("lxcme.cli.exec_interactive"),
+        ):
+            runner.invoke(main, ["--distro", "fedora", "--release", "40"], input="y\n")
+
+        assert mock_create.call_args[0][1] == "fedora-40-amd64"
+
+    def test_debian_instance_name_omits_distro(self) -> None:
         runner = CliRunner()
         user = _make_user()
         debian_target = TargetInfo(distro="debian", release="bookworm", arch="amd64", host_distro="ubuntu")
         image = MagicMock()
         image.fingerprint = "abc"
-        new_instance = _make_instance(name="debian-bookworm-amd64", setup_done=False)
+        new_instance = _make_instance(name="bookworm-amd64", setup_done=False)
 
         with (
             patch("lxcme.cli.get_host_info", return_value=_HOST_UBUNTU),
@@ -265,7 +292,7 @@ class TestMainDistroOverrides:
         ):
             runner.invoke(main, ["--distro", "debian", "--release", "bookworm"], input="y\n")
 
-        assert mock_create.call_args[0][1] == "debian-bookworm-amd64"
+        assert mock_create.call_args[0][1] == "bookworm-amd64"
 
     def test_same_distro_instance_name_omits_distro(self) -> None:
         runner = CliRunner()
