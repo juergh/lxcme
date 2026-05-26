@@ -24,12 +24,13 @@ logger = logging.getLogger(__name__)
 
 
 def _configure_logging(verbose: bool) -> None:
+    """Configure logging level (DEBUG if verbose, otherwise INFO)."""
     level = logging.DEBUG if verbose else logging.INFO
     logging.basicConfig(format="%(levelname)s: %(message)s", level=level)
 
 
 def _resolve_command(command: tuple[str, ...]) -> list[str]:
-    """Return the command list, defaulting to bash --login."""
+    """Return command list, defaulting to bash --login if empty."""
     return list(command) if command else ["bash", "--login"]
 
 

@@ -1,11 +1,4 @@
-"""User and group setup inside LXC instances.
-
-Handles first-launch provisioning:
-  - user/group existence check and creation
-  - raw.idmap configuration to map host uid/gid to instance uid/gid
-  - home directory setup (host bind-mount or empty directory)
-  - passwordless sudo configuration
-"""
+"""User and group setup inside LXC instances for first-launch provisioning."""
 
 from __future__ import annotations
 
@@ -38,11 +31,7 @@ class User:
 
 
 def get_current_user() -> User:
-    """Detect the current host user's identity from the OS.
-
-    Returns:
-        User populated from the current process's uid/gid.
-    """
+    """Detect current host user's identity from the OS."""
     pw = pwd.getpwuid(os.getuid())
     gr = grp.getgrgid(os.getgid())
     return User(
@@ -55,13 +44,13 @@ def get_current_user() -> User:
 
 
 def _exec_in(instance: pylxd.models.Instance, command: list[str]) -> tuple[int, str, str]:
-    """Run a command as root inside the instance and return (exit_code, stdout, stderr)."""
+    """Run command as root inside instance, returning (exit_code, stdout, stderr)."""
     result = instance.execute(command, user=0)
     return result.exit_code, result.stdout or "", result.stderr or ""
 
 
 def _lookup_instance_uid(instance: pylxd.models.Instance, username: str) -> int | None:
-    """Return the uid of a user inside the instance, or None if not found."""
+    """Return uid of user inside instance, or None if not found."""
     rc, stdout, _ = _exec_in(instance, ["id", "-u", username])
     if rc != 0:
         return None
@@ -72,7 +61,7 @@ def _lookup_instance_uid(instance: pylxd.models.Instance, username: str) -> int 
 
 
 def _lookup_instance_gid(instance: pylxd.models.Instance, groupname: str) -> int | None:
-    """Return the gid of a group inside the instance, or None if not found."""
+    """Return gid of group inside instance, or None if not found."""
     rc, stdout, _ = _exec_in(instance, ["getent", "group", groupname])
     if rc != 0:
         return None
@@ -87,7 +76,7 @@ def _lookup_instance_gid(instance: pylxd.models.Instance, groupname: str) -> int
 
 
 def ensure_group(instance: pylxd.models.Instance, groupname: str) -> int:
-    """Ensure a group exists inside the instance, creating it if absent."""
+    """Ensure group exists inside instance, creating if absent."""
     gid = _lookup_instance_gid(instance, groupname)
     if gid is not None:
         logger.debug("Group '%s' already exists in instance (gid=%d).", groupname, gid)
@@ -105,7 +94,7 @@ def ensure_group(instance: pylxd.models.Instance, groupname: str) -> int:
 
 
 def ensure_user(instance: pylxd.models.Instance, username: str, groupname: str) -> int:
-    """Ensure a user exists inside the instance, creating it if absent."""
+    """Ensure user exists inside instance, creating if absent."""
     uid = _lookup_instance_uid(instance, username)
     if uid is not None:
         logger.debug("User '%s' already exists in instance (uid=%d).", username, uid)
@@ -139,7 +128,7 @@ def configure_idmap(
 
 
 def setup_home_mount(instance: pylxd.models.Instance, user: User) -> None:
-    """Attach the host home directory as a disk device inside the instance."""
+    """Attach host home directory as disk device inside instance."""
     home_str = str(user.home)
     device_name = "home"
     instance.devices[device_name] = {
@@ -171,11 +160,7 @@ def setup_home_directory(
 
 
 def setup_passwordless_sudo(instance: pylxd.models.Instance, username: str) -> None:
-    """Configure passwordless sudo for the user inside the instance.
-
-    Writes /etc/sudoers.d/<username> with NOPASSWD:ALL. Also ensures the
-    user is a member of the sudo group.
-    """
+    """Configure passwordless sudo for user inside instance."""
     sudoers_entry = f"{username} ALL=(ALL) NOPASSWD:ALL\n"
     sudoers_path = f"/etc/sudoers.d/{username}"
 
@@ -193,13 +178,13 @@ def setup_passwordless_sudo(instance: pylxd.models.Instance, username: str) -> N
 
 
 def is_setup_done(instance: pylxd.models.Instance) -> bool:
-    """Check whether first-launch user setup has already been performed."""
+    """Check whether first-launch user setup has been performed."""
     instance.sync()
     return str(instance.config.get(SETUP_DONE_KEY, "")) == "true"
 
 
 def mark_setup_done(instance: pylxd.models.Instance, instance_uid: int, instance_gid: int) -> None:
-    """Mark first-launch user setup as complete and persist instance uid/gid in config."""
+    """Mark first-launch setup complete and persist instance uid/gid."""
     instance.config[SETUP_DONE_KEY] = "true"
     instance.config[INSTANCE_UID_KEY] = str(instance_uid)
     instance.config[INSTANCE_GID_KEY] = str(instance_gid)
@@ -207,7 +192,7 @@ def mark_setup_done(instance: pylxd.models.Instance, instance_uid: int, instance
 
 
 def get_instance_user_ids(instance: pylxd.models.Instance) -> tuple[int, int]:
-    """Retrieve the stored instance uid/gid from the instance config."""
+    """Retrieve stored instance uid/gid from instance config."""
     instance.sync()
     uid = int(instance.config[INSTANCE_UID_KEY])
     gid = int(instance.config[INSTANCE_GID_KEY])
@@ -220,18 +205,7 @@ def setup_instance_user(
     *,
     no_home: bool = False,
 ) -> None:
-    """Perform full first-launch user provisioning for an instance.
-
-    Steps:
-      1. Start instance for user/group introspection, creation, and in-instance setup.
-      2. Ensure group and user exist inside the instance.
-      3. Set up home directory (empty dir, if --no-home).
-      4. Configure passwordless sudo.
-      5. Write raw.idmap config (host uid/gid -> instance uid/gid).
-      6. Attach host home as disk device (if not --no-home).
-      7. Mark setup as done.
-      8. Restart instance to apply idmap and disk device config.
-    """
+    """Perform full first-launch user provisioning for instance."""
     logger.info("Starting first-launch user setup for instance '%s'...", instance.name)
 
     # Step 1: start for user/group introspection and in-instance setup

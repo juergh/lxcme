@@ -8,7 +8,7 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class HostInfo:
-    """Host system information as detected from /etc/os-release and platform."""
+    """Host system information from /etc/os-release and platform."""
 
     distro: str
     release: str
@@ -17,11 +17,7 @@ class HostInfo:
 
 @dataclass(frozen=True)
 class TargetInfo:
-    """Target instance configuration, derived from host info with optional overrides.
-
-    Provides :attr:`instance_alias` and :attr:`image_alias` as the canonical
-    names for the LXC instance and its source image respectively.
-    """
+    """Target instance configuration derived from host info with optional overrides."""
 
     distro: str
     release: str
@@ -30,14 +26,14 @@ class TargetInfo:
 
     @property
     def instance_alias(self) -> str:
-        """Instance name: ``release-arch`` when distro matches host, else ``distro-release-arch``."""
+        """Instance name (release-arch if distro matches host, else distro-release-arch)."""
         if self.distro == self.host_distro:
             return f"{self.release}-{self.arch}"
         return f"{self.distro}-{self.release}-{self.arch}"
 
     @property
     def image_alias(self) -> str:
-        """Image alias: always the full ``distro-release-arch`` triple."""
+        """Image alias (always distro-release-arch)."""
         return f"{self.distro}-{self.release}-{self.arch}"
 
 
@@ -70,7 +66,7 @@ def get_target_info(
     release: str | None = None,
     arch: str | None = None,
 ) -> TargetInfo:
-    """Build a TargetInfo from host info with optional distro/release/arch overrides."""
+    """Build TargetInfo from host info with optional overrides."""
     return TargetInfo(
         distro=(distro or host.distro).lower(),
         release=(release or host.release).lower(),

@@ -20,7 +20,7 @@ LXCME_MARKER = "user.lxcme.managed"
 
 
 def find_instance(client: pylxd.Client, name: str) -> pylxd.models.Instance | None:
-    """Look up an existing LXC instance by name."""
+    """Look up an existing LXC instance by name, returning None if not found."""
     try:
         return client.instances.get(name)  # noqa: PGH003
     except pylxd.exceptions.NotFound:
@@ -33,11 +33,7 @@ def create_instance(
     image: pylxd.models.Image,
     instance_type: str = "container",
 ) -> pylxd.models.Instance:
-    """Create a new LXC instance from a local image.
-
-    The instance is created but not started. User setup must be performed
-    before first use via users.setup_instance_user().
-    """
+    """Create a new LXC instance from a local image (not started)."""
     fingerprint = image.fingerprint
     config: dict[str, str] = {LXCME_MARKER: "true"}
 
@@ -72,11 +68,7 @@ def exec_interactive(
     *,
     as_root: bool,
 ) -> None:
-    """Replace the current process with an interactive lxc exec session.
-
-    Uses os.execvp so the shell gets a proper TTY and signals are handled
-    correctly. This function never returns.
-    """
+    """Replace current process with interactive lxc exec session (never returns)."""
     argv = ["lxc", "exec", instance_name]
 
     if not as_root:
@@ -108,7 +100,7 @@ def exec_noninteractive(
     *,
     as_root: bool,
 ) -> tuple[int, str, str]:
-    """Run a command non-interactively inside the instance via pylxd."""
+    """Run command non-interactively inside instance, returning (exit_code, stdout, stderr)."""
     uid = 0 if as_root else instance_uid
     gid = 0 if as_root else instance_gid
     cwd = "/" if as_root else str(user.home)
@@ -127,11 +119,7 @@ def exec_noninteractive(
 
 
 def is_interactive(command: list[str]) -> bool:
-    """Determine whether a command should be run interactively.
-
-    A command is considered interactive when it is a shell invocation
-    (bash/sh/zsh/fish) or when stdout is a TTY.
-    """
+    """Determine if command should run interactively (shell or TTY detected)."""
     shells = {"bash", "sh", "zsh", "fish", "ksh", "dash"}
     executable = Path(command[0]).name if command else ""
     return executable in shells or os.isatty(1)
