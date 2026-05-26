@@ -91,6 +91,7 @@ class TestEnsureImage:
         result = ensure_image(client, "ubuntu", "noble", "ubuntu-noble-amd64")
         assert result is downloaded
         client.images.create_from_simplestreams.assert_called_once_with(UBUNTU_REMOTE, "noble")
+        downloaded.add_alias.assert_called_once_with("ubuntu-noble-amd64", "")
 
     def test_uses_images_remote_for_non_ubuntu(self) -> None:
         client = MagicMock()

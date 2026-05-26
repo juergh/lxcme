@@ -65,5 +65,6 @@ def ensure_image(
     logger.info("Downloading image '%s' from remote '%s'...", local_alias, remote)
 
     image = client.images.create_from_simplestreams(remote, remote_alias)
+    image.add_alias(local_alias, "")
     logger.info("Image '%s' downloaded successfully.", local_alias)
     return image
