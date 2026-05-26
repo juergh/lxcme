@@ -122,8 +122,10 @@ def configure_idmap(
 ) -> None:
     """Configure raw.idmap to map host uid/gid to instance uid/gid."""
     idmap = f"uid {user.uid} {instance_uid}\ngid {user.gid} {instance_gid}"
-    instance.config["raw.idmap"] = idmap
-    instance.save(wait=True)
+
+    # Use patch() to update only raw.idmap without touching volatile keys
+    instance.patch({"config": {"raw.idmap": idmap}}, wait=True)
+
     logger.info("Configured raw.idmap: %s", idmap.replace("\n", " | "))
 
 
