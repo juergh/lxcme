@@ -319,3 +319,65 @@ class TestMainDistroOverrides:
             runner.invoke(main, [], input="y\n")
 
         assert mock_create.call_args[0][1] == "noble-amd64"
+
+
+class TestMainDebianChroot:
+    def _run_interactive(self, target: TargetInfo) -> MagicMock:
+        runner = CliRunner()
+        user = _make_user()
+        instance = _make_instance()
+
+        with (
+            patch("lxcme.cli.get_host_info", return_value=_HOST_UBUNTU),
+            patch("lxcme.cli.get_target_info", return_value=target),
+            patch("lxcme.cli.get_current_user", return_value=user),
+            patch("lxcme.cli.pylxd.Client"),
+            patch("lxcme.cli.find_instance", return_value=instance),
+            patch("lxcme.cli.is_setup_done", return_value=True),
+            patch("lxcme.cli.ensure_running"),
+            patch("lxcme.cli.get_instance_user_ids", return_value=_INSTANCE_IDS),
+            patch("lxcme.cli.is_interactive", return_value=True),
+            patch("lxcme.cli.exec_interactive") as mock_exec,
+        ):
+            runner.invoke(main, [])
+
+        return mock_exec
+
+    def test_debian_chroot_set_for_ubuntu(self) -> None:
+        mock_exec = self._run_interactive(_TARGET_UBUNTU)
+        _, kwargs = mock_exec.call_args
+        assert kwargs.get("debian_chroot") == "(lxc)"
+
+    def test_debian_chroot_set_for_debian(self) -> None:
+        target = TargetInfo(distro="debian", release="bookworm", arch="amd64", host_distro="ubuntu")
+        mock_exec = self._run_interactive(target)
+        _, kwargs = mock_exec.call_args
+        assert kwargs.get("debian_chroot") == "(lxc)"
+
+    def test_debian_chroot_not_set_for_non_debian(self) -> None:
+        target = TargetInfo(distro="fedora", release="40", arch="amd64", host_distro="ubuntu")
+        mock_exec = self._run_interactive(target)
+        _, kwargs = mock_exec.call_args
+        assert kwargs.get("debian_chroot") is None
+
+    def test_debian_chroot_set_when_root(self) -> None:
+        runner = CliRunner()
+        user = _make_user()
+        instance = _make_instance()
+
+        with (
+            patch("lxcme.cli.get_host_info", return_value=_HOST_UBUNTU),
+            patch("lxcme.cli.get_target_info", return_value=_TARGET_UBUNTU),
+            patch("lxcme.cli.get_current_user", return_value=user),
+            patch("lxcme.cli.pylxd.Client"),
+            patch("lxcme.cli.find_instance", return_value=instance),
+            patch("lxcme.cli.is_setup_done", return_value=True),
+            patch("lxcme.cli.ensure_running"),
+            patch("lxcme.cli.get_instance_user_ids", return_value=_INSTANCE_IDS),
+            patch("lxcme.cli.is_interactive", return_value=True),
+            patch("lxcme.cli.exec_interactive") as mock_exec,
+        ):
+            runner.invoke(main, ["--root"])
+
+        _, kwargs = mock_exec.call_args
+        assert kwargs.get("debian_chroot") == "(lxc)"

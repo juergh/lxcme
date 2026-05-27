@@ -67,6 +67,7 @@ def exec_interactive(
     instance_gid: int,
     *,
     as_root: bool,
+    debian_chroot: str | None = None,
 ) -> None:
     """Replace current process with interactive lxc exec session (never returns)."""
     argv = ["lxc", "exec", instance_name]
@@ -86,6 +87,9 @@ def exec_interactive(
             "--env",
             f"LOGNAME={user.username}",
         ]
+
+    if debian_chroot is not None:
+        argv += ["--env", f"debian_chroot={debian_chroot}"]
 
     argv += ["--"] + command
     os.execvp("lxc", argv)
