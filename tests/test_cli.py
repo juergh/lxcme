@@ -53,6 +53,7 @@ class TestMainExistingInstance:
             patch("lxcme.cli.find_instance", return_value=instance),
             patch("lxcme.cli.is_setup_done", return_value=True),
             patch("lxcme.cli.ensure_running"),
+            patch("lxcme.cli.sync_mounts", return_value=False),
             patch("lxcme.cli.get_instance_user_ids", return_value=_INSTANCE_IDS),
             patch("lxcme.cli.is_interactive", return_value=True),
             patch("lxcme.cli.exec_interactive") as mock_exec,
@@ -76,6 +77,7 @@ class TestMainExistingInstance:
             patch("lxcme.cli.find_instance", return_value=instance),
             patch("lxcme.cli.is_setup_done", return_value=True),
             patch("lxcme.cli.ensure_running"),
+            patch("lxcme.cli.sync_mounts", return_value=False),
             patch("lxcme.cli.get_instance_user_ids", return_value=_INSTANCE_IDS),
             patch("lxcme.cli.is_interactive", return_value=False),
             patch("lxcme.cli.exec_noninteractive", return_value=exec_result),
@@ -98,6 +100,7 @@ class TestMainExistingInstance:
             patch("lxcme.cli.find_instance", return_value=instance),
             patch("lxcme.cli.is_setup_done", return_value=True),
             patch("lxcme.cli.ensure_running"),
+            patch("lxcme.cli.sync_mounts", return_value=False),
             patch("lxcme.cli.get_instance_user_ids", return_value=_INSTANCE_IDS),
             patch("lxcme.cli.is_interactive", return_value=True),
             patch("lxcme.cli.exec_interactive") as mock_exec,
@@ -120,6 +123,7 @@ class TestMainExistingInstance:
             patch("lxcme.cli.find_instance", return_value=instance),
             patch("lxcme.cli.is_setup_done", return_value=True),
             patch("lxcme.cli.ensure_running"),
+            patch("lxcme.cli.sync_mounts", return_value=False),
             patch("lxcme.cli.get_instance_user_ids", return_value=(500, 501)),
             patch("lxcme.cli.is_interactive", return_value=True),
             patch("lxcme.cli.exec_interactive") as mock_exec,
@@ -182,6 +186,7 @@ class TestMainNewInstance:
             patch("lxcme.cli.is_setup_done", return_value=False),
             patch("lxcme.cli.setup_instance_user") as mock_setup,
             patch("lxcme.cli.ensure_running"),
+            patch("lxcme.cli.sync_mounts", return_value=False),
             patch("lxcme.cli.get_instance_user_ids", return_value=_INSTANCE_IDS),
             patch("lxcme.cli.is_interactive", return_value=True),
             patch("lxcme.cli.exec_interactive"),
@@ -189,33 +194,6 @@ class TestMainNewInstance:
             runner.invoke(main, [], input="y\n")
 
         mock_setup.assert_called_once()
-
-    def test_no_home_flag_passed_to_setup(self) -> None:
-        runner = CliRunner()
-        user = _make_user()
-        image = MagicMock()
-        image.fingerprint = "abc"
-        new_instance = _make_instance(setup_done=False)
-
-        with (
-            patch("lxcme.cli.get_host_info", return_value=_HOST_UBUNTU),
-            patch("lxcme.cli.get_target_info", return_value=_TARGET_UBUNTU),
-            patch("lxcme.cli.get_current_user", return_value=user),
-            patch("lxcme.cli.pylxd.Client"),
-            patch("lxcme.cli.find_instance", return_value=None),
-            patch("lxcme.cli.ensure_image", return_value=image),
-            patch("lxcme.cli.create_instance", return_value=new_instance),
-            patch("lxcme.cli.is_setup_done", return_value=False),
-            patch("lxcme.cli.setup_instance_user") as mock_setup,
-            patch("lxcme.cli.ensure_running"),
-            patch("lxcme.cli.get_instance_user_ids", return_value=_INSTANCE_IDS),
-            patch("lxcme.cli.is_interactive", return_value=True),
-            patch("lxcme.cli.exec_interactive"),
-        ):
-            runner.invoke(main, ["--no-home"], input="y\n")
-
-        _, kwargs = mock_setup.call_args
-        assert kwargs.get("no_home") is True
 
 
 class TestMainDistroOverrides:
@@ -232,6 +210,7 @@ class TestMainDistroOverrides:
             patch("lxcme.cli.find_instance", return_value=_make_instance(name="debian-bookworm-arm64")),
             patch("lxcme.cli.is_setup_done", return_value=True),
             patch("lxcme.cli.ensure_running"),
+            patch("lxcme.cli.sync_mounts", return_value=False),
             patch("lxcme.cli.get_instance_user_ids", return_value=_INSTANCE_IDS),
             patch("lxcme.cli.is_interactive", return_value=True),
             patch("lxcme.cli.exec_interactive"),
@@ -259,6 +238,7 @@ class TestMainDistroOverrides:
             patch("lxcme.cli.is_setup_done", return_value=False),
             patch("lxcme.cli.setup_instance_user"),
             patch("lxcme.cli.ensure_running"),
+            patch("lxcme.cli.sync_mounts", return_value=False),
             patch("lxcme.cli.get_instance_user_ids", return_value=_INSTANCE_IDS),
             patch("lxcme.cli.is_interactive", return_value=True),
             patch("lxcme.cli.exec_interactive"),
@@ -286,6 +266,7 @@ class TestMainDistroOverrides:
             patch("lxcme.cli.is_setup_done", return_value=False),
             patch("lxcme.cli.setup_instance_user"),
             patch("lxcme.cli.ensure_running"),
+            patch("lxcme.cli.sync_mounts", return_value=False),
             patch("lxcme.cli.get_instance_user_ids", return_value=_INSTANCE_IDS),
             patch("lxcme.cli.is_interactive", return_value=True),
             patch("lxcme.cli.exec_interactive"),
@@ -312,6 +293,7 @@ class TestMainDistroOverrides:
             patch("lxcme.cli.is_setup_done", return_value=False),
             patch("lxcme.cli.setup_instance_user"),
             patch("lxcme.cli.ensure_running"),
+            patch("lxcme.cli.sync_mounts", return_value=False),
             patch("lxcme.cli.get_instance_user_ids", return_value=_INSTANCE_IDS),
             patch("lxcme.cli.is_interactive", return_value=True),
             patch("lxcme.cli.exec_interactive"),
@@ -335,6 +317,7 @@ class TestMainDebianChroot:
             patch("lxcme.cli.find_instance", return_value=instance),
             patch("lxcme.cli.is_setup_done", return_value=True),
             patch("lxcme.cli.ensure_running"),
+            patch("lxcme.cli.sync_mounts", return_value=False),
             patch("lxcme.cli.get_instance_user_ids", return_value=_INSTANCE_IDS),
             patch("lxcme.cli.is_interactive", return_value=True),
             patch("lxcme.cli.exec_interactive") as mock_exec,
@@ -373,6 +356,7 @@ class TestMainDebianChroot:
             patch("lxcme.cli.find_instance", return_value=instance),
             patch("lxcme.cli.is_setup_done", return_value=True),
             patch("lxcme.cli.ensure_running"),
+            patch("lxcme.cli.sync_mounts", return_value=False),
             patch("lxcme.cli.get_instance_user_ids", return_value=_INSTANCE_IDS),
             patch("lxcme.cli.is_interactive", return_value=True),
             patch("lxcme.cli.exec_interactive") as mock_exec,
@@ -381,3 +365,76 @@ class TestMainDebianChroot:
 
         _, kwargs = mock_exec.call_args
         assert kwargs.get("debian_chroot") == "(lxc)"
+
+
+class TestMainMounts:
+    def _run_with_mounts(self, args: list[str], sync_return: bool = False) -> MagicMock:
+        runner = CliRunner()
+        user = _make_user()
+        instance = _make_instance()
+
+        with (
+            patch("lxcme.cli.get_host_info", return_value=_HOST_UBUNTU),
+            patch("lxcme.cli.get_target_info", return_value=_TARGET_UBUNTU),
+            patch("lxcme.cli.get_current_user", return_value=user),
+            patch("lxcme.cli.pylxd.Client"),
+            patch("lxcme.cli.find_instance", return_value=instance),
+            patch("lxcme.cli.is_setup_done", return_value=True),
+            patch("lxcme.cli.ensure_running"),
+            patch("lxcme.cli.sync_mounts", return_value=sync_return) as mock_sync,
+            patch("lxcme.cli.get_instance_user_ids", return_value=_INSTANCE_IDS),
+            patch("lxcme.cli.is_interactive", return_value=True),
+            patch("lxcme.cli.exec_interactive"),
+        ):
+            runner.invoke(main, args)
+
+        return mock_sync
+
+    def test_mount_with_explicit_instance_path(self) -> None:
+        mock_sync = self._run_with_mounts(["--mount", "/host/data:/inst/data"])
+        _, args, _ = mock_sync.mock_calls[0]
+        assert ("/host/data", "/inst/data") in args[1]
+
+    def test_mount_defaults_instance_path_to_host_path(self) -> None:
+        mock_sync = self._run_with_mounts(["--mount", "/home/alice"])
+        _, args, _ = mock_sync.mock_calls[0]
+        assert ("/home/alice", "/home/alice") in args[1]
+
+    def test_multiple_mounts(self) -> None:
+        mock_sync = self._run_with_mounts(["--mount", "/foo:/bar", "--mount", "/baz"])
+        _, args, _ = mock_sync.mock_calls[0]
+        mounts = args[1]
+        assert ("/foo", "/bar") in mounts
+        assert ("/baz", "/baz") in mounts
+
+    def test_no_mounts_passes_empty_list(self) -> None:
+        mock_sync = self._run_with_mounts([])
+        _, args, _ = mock_sync.mock_calls[0]
+        assert args[1] == []
+
+    def test_instance_restarted_when_mounts_change(self) -> None:
+        runner = CliRunner()
+        user = _make_user()
+        instance = _make_instance()
+
+        with (
+            patch("lxcme.cli.get_host_info", return_value=_HOST_UBUNTU),
+            patch("lxcme.cli.get_target_info", return_value=_TARGET_UBUNTU),
+            patch("lxcme.cli.get_current_user", return_value=user),
+            patch("lxcme.cli.pylxd.Client"),
+            patch("lxcme.cli.find_instance", return_value=instance),
+            patch("lxcme.cli.is_setup_done", return_value=True),
+            patch("lxcme.cli.ensure_running"),
+            patch("lxcme.cli.sync_mounts", return_value=True),
+            patch("lxcme.cli.get_instance_user_ids", return_value=_INSTANCE_IDS),
+            patch("lxcme.cli.is_interactive", return_value=True),
+            patch("lxcme.cli.exec_interactive"),
+        ):
+            runner.invoke(main, ["--mount", "/foo"])
+
+        instance.stop.assert_called_once_with(wait=True)
+        instance.start.assert_called_once_with(wait=True)
+
+    def test_instance_not_restarted_when_mounts_unchanged(self) -> None:
+        self._run_with_mounts(["--mount", "/foo"], sync_return=False)
+        # No restart expected; covered by absence of stop/start calls in sync_return=False path

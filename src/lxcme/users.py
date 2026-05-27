@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 SETUP_DONE_KEY = "user.lxcme.setup-done"
 INSTANCE_UID_KEY = "user.lxcme.uid"
 INSTANCE_GID_KEY = "user.lxcme.gid"
+MOUNT_KEY_PREFIX = "user.lxcme.mount."
 
 
 @dataclass(frozen=True)
@@ -129,17 +130,44 @@ def configure_idmap(
     logger.info("Configured raw.idmap: %s", idmap.replace("\n", " | "))
 
 
-def setup_home_mount(instance: pylxd.models.Instance, user: User) -> None:
-    """Attach host home directory as disk device inside instance."""
-    home_str = str(user.home)
-    device_name = "home"
-    instance.devices[device_name] = {
-        "type": "disk",
-        "source": home_str,
-        "path": home_str,
-    }
+def _mount_device_name(host_path: str) -> str:
+    """Derive a stable LXD device name from a host path."""
+    return host_path.strip("/").replace("/", "_") or "root"
+
+
+def sync_mounts(instance: pylxd.models.Instance, mounts: list[tuple[str, str]]) -> bool:
+    """Reconcile instance disk devices against desired mounts.
+
+    Each mount is a (host_path, instance_path) pair. Tracked via
+    user.lxcme.mount.<device> config keys. Returns True if any change was made.
+    """
+    desired: dict[str, tuple[str, str]] = {_mount_device_name(host): (host, inst) for host, inst in mounts}
+
+    current: dict[str, tuple[str, str]] = {}
+    for key, val in instance.config.items():
+        if key.startswith(MOUNT_KEY_PREFIX):
+            device = key[len(MOUNT_KEY_PREFIX) :]
+            host, _, inst = val.partition(":")
+            current[device] = (host, inst)
+
+    if desired == current:
+        return False
+
+    # Remove stale devices and config keys
+    for device in current:
+        if device not in desired:
+            instance.devices.pop(device, None)
+            instance.config.pop(MOUNT_KEY_PREFIX + device, None)
+            logger.info("Removed mount device '%s'.", device)
+
+    # Add or update devices
+    for device, (host, inst) in desired.items():
+        instance.devices[device] = {"type": "disk", "source": host, "path": inst}
+        instance.config[MOUNT_KEY_PREFIX + device] = f"{host}:{inst}"
+        logger.info("Attached '%s' -> '%s' as device '%s'.", host, inst, device)
+
     instance.save(wait=True)
-    logger.info("Attached host home '%s' as disk device in instance.", home_str)
+    return True
 
 
 def setup_home_directory(
@@ -204,8 +232,6 @@ def get_instance_user_ids(instance: pylxd.models.Instance) -> tuple[int, int]:
 def setup_instance_user(
     instance: pylxd.models.Instance,
     user: User,
-    *,
-    no_home: bool = False,
 ) -> None:
     """Perform full first-launch user provisioning for instance."""
     logger.info("Starting first-launch user setup for instance '%s'...", instance.name)
@@ -219,27 +245,19 @@ def setup_instance_user(
     instance_gid = ensure_group(instance, user.groupname)
     instance_uid = ensure_user(instance, user.username, user.groupname)
 
-    # Step 3: home directory (only needed when not mounting host home)
-    if no_home:
-        setup_home_directory(instance, user, instance_uid, instance_gid)
-
-    # Step 4: passwordless sudo
+    # Step 3: passwordless sudo
     setup_passwordless_sudo(instance, user.username)
 
-    # Step 5: stop instance to apply idmap and disk device config
+    # Step 4: stop instance to apply idmap config
     instance.stop(wait=True)
     instance.sync()
 
-    # Step 6: write idmap config (must be applied while stopped)
+    # Step 5: write idmap config (must be applied while stopped)
     configure_idmap(instance, user, instance_uid, instance_gid)
 
-    # Step 7: attach home disk device (must be applied while stopped)
-    if not no_home:
-        setup_home_mount(instance, user)
-
-    # Step 8: mark done, persisting instance uid/gid
+    # Step 6: mark done, persisting instance uid/gid
     mark_setup_done(instance, instance_uid, instance_gid)
 
-    # Step 9: start instance to apply idmap and disk device config
+    # Step 7: start instance
     instance.start(wait=True)
     logger.info("First-launch setup complete for instance '%s'.", instance.name)

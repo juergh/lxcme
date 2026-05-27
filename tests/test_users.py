@@ -10,6 +10,7 @@ import pytest
 from lxcme.users import (
     INSTANCE_GID_KEY,
     INSTANCE_UID_KEY,
+    MOUNT_KEY_PREFIX,
     SETUP_DONE_KEY,
     User,
     configure_idmap,
@@ -19,9 +20,9 @@ from lxcme.users import (
     is_setup_done,
     mark_setup_done,
     setup_home_directory,
-    setup_home_mount,
     setup_instance_user,
     setup_passwordless_sudo,
+    sync_mounts,
 )
 
 
@@ -121,20 +122,61 @@ class TestConfigureIdmap:
         assert "gid 5678 1000" in idmap
 
 
-class TestSetupHomeMount:
-    def test_attaches_disk_device(self) -> None:
+class TestSyncMounts:
+    def test_adds_new_mounts(self) -> None:
         instance = MagicMock()
+        instance.config = {}
         instance.devices = {}
-        user = _make_user()
 
-        setup_home_mount(instance, user)
+        changed = sync_mounts(instance, [("/host/foo", "/inst/foo")])
 
-        assert "home" in instance.devices
-        device = instance.devices["home"]
-        assert device["type"] == "disk"
+        assert changed is True
+        assert instance.devices["host_foo"]["source"] == "/host/foo"
+        assert instance.devices["host_foo"]["path"] == "/inst/foo"
+        assert instance.config[MOUNT_KEY_PREFIX + "host_foo"] == "/host/foo:/inst/foo"
+        instance.save.assert_called_once_with(wait=True)
+
+    def test_removes_stale_mounts(self) -> None:
+        instance = MagicMock()
+        instance.config = {MOUNT_KEY_PREFIX + "host_old": "/host/old:/inst/old"}
+        instance.devices = {"host_old": {"type": "disk", "source": "/host/old", "path": "/inst/old"}}
+
+        changed = sync_mounts(instance, [])
+
+        assert changed is True
+        assert "host_old" not in instance.devices
+        assert MOUNT_KEY_PREFIX + "host_old" not in instance.config
+
+    def test_no_change_returns_false(self) -> None:
+        instance = MagicMock()
+        instance.config = {MOUNT_KEY_PREFIX + "home_alice": "/home/alice:/home/alice"}
+        instance.devices = {}
+
+        changed = sync_mounts(instance, [("/home/alice", "/home/alice")])
+
+        assert changed is False
+        instance.save.assert_not_called()
+
+    def test_default_instance_path_equals_host_path(self) -> None:
+        instance = MagicMock()
+        instance.config = {}
+        instance.devices = {}
+
+        sync_mounts(instance, [("/home/alice", "/home/alice")])
+
+        device = instance.devices["home_alice"]
         assert device["source"] == "/home/alice"
         assert device["path"] == "/home/alice"
-        instance.save.assert_called_once_with(wait=True)
+
+    def test_replaces_changed_mount(self) -> None:
+        instance = MagicMock()
+        instance.config = {MOUNT_KEY_PREFIX + "host_foo": "/host/foo:/old/path"}
+        instance.devices = {"host_foo": {"type": "disk", "source": "/host/foo", "path": "/old/path"}}
+
+        changed = sync_mounts(instance, [("/host/foo", "/new/path")])
+
+        assert changed is True
+        assert instance.devices["host_foo"]["path"] == "/new/path"
 
 
 class TestSetupHomeDirectory:
@@ -218,14 +260,12 @@ class TestGetInstanceUserIds:
 
 
 class TestSetupInstanceUser:
-    def test_full_flow_with_home_mount(self) -> None:
+    def test_full_flow(self) -> None:
         instance = MagicMock()
         instance.config = {}
         instance.devices = {}
         user = _make_user()
 
-        # Sequence: start, ensure_group (getent found), ensure_user (id found),
-        # stop, start, sudo (bash+chmod), sudo (usermod), mark done
         instance.execute.side_effect = [
             _make_exec_result(stdout="alice:x:1000:\n"),  # getent group
             _make_exec_result(stdout="1000\n"),  # id -u
@@ -233,29 +273,8 @@ class TestSetupInstanceUser:
             _make_exec_result(exit_code=0),  # usermod -aG sudo
         ]
 
-        setup_instance_user(instance, user, no_home=False)
+        setup_instance_user(instance, user)
 
         instance.start.assert_called()
         instance.stop.assert_called_once_with(wait=True)
-        assert "home" in instance.devices
-        assert SETUP_DONE_KEY in instance.config
-
-    def test_full_flow_no_home(self) -> None:
-        instance = MagicMock()
-        instance.config = {}
-        instance.devices = {}
-        user = _make_user()
-
-        instance.execute.side_effect = [
-            _make_exec_result(stdout="alice:x:1000:\n"),  # getent group
-            _make_exec_result(stdout="1000\n"),  # id -u
-            _make_exec_result(exit_code=0),  # mkdir
-            _make_exec_result(exit_code=0),  # chown
-            _make_exec_result(exit_code=0),  # bash sudoers
-            _make_exec_result(exit_code=0),  # usermod -aG sudo
-        ]
-
-        setup_instance_user(instance, user, no_home=True)
-
-        assert "home" not in instance.devices
         assert SETUP_DONE_KEY in instance.config

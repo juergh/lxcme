@@ -18,7 +18,7 @@ from lxcme.instances import (
     find_instance,
     is_interactive,
 )
-from lxcme.users import get_current_user, get_instance_user_ids, is_setup_done, setup_instance_user
+from lxcme.users import get_current_user, get_instance_user_ids, is_setup_done, setup_instance_user, sync_mounts
 
 logger = logging.getLogger(__name__)
 
@@ -34,16 +34,25 @@ def _resolve_command(command: tuple[str, ...]) -> list[str]:
     return list(command) if command else ["bash", "--login"]
 
 
+def _parse_mount(value: str) -> tuple[str, str]:
+    """Parse a --mount value into (host_path, instance_path).
+
+    Format: <host-dir>[:<instance-dir>]. If instance-dir is omitted, host-dir is used.
+    """
+    host, sep, inst = value.partition(":")
+    return host, inst if sep else host
+
+
 @click.command(
     context_settings={"ignore_unknown_options": True, "allow_extra_args": True},
 )
 @click.option("--root", is_flag=True, default=False, help="Run command as root inside the instance.")
 @click.option(
-    "--no-home",
-    "no_home",
-    is_flag=True,
-    default=False,
-    help="Create an empty home dir inside the instance instead of mounting the host home.",
+    "--mount",
+    "mounts",
+    multiple=True,
+    metavar="HOST_DIR[:INSTANCE_DIR]",
+    help="Mount HOST_DIR inside the instance at INSTANCE_DIR (defaults to HOST_DIR). Repeatable.",
 )
 @click.option("--distro", default=None, metavar="DISTRO", help="Override host distribution name.")
 @click.option("--release", default=None, metavar="RELEASE", help="Override host distribution release.")
@@ -53,7 +62,7 @@ def _resolve_command(command: tuple[str, ...]) -> list[str]:
 @click.argument("command", nargs=-1, type=click.UNPROCESSED)
 def main(
     root: bool,
-    no_home: bool,
+    mounts: tuple[str, ...],
     distro: str | None,
     release: str | None,
     arch: str | None,
@@ -74,6 +83,7 @@ def main(
     user = get_current_user()
     name = instance_name or target.instance_alias
     resolved_command = _resolve_command(tuple(cmd_list))
+    parsed_mounts = [_parse_mount(m) for m in mounts]
 
     client = pylxd.Client()
 
@@ -81,12 +91,13 @@ def main(
     is_new = instance is None
 
     if is_new:
+        mount_summary = ", ".join(f"{h}:{i}" for h, i in parsed_mounts) or "(none)"
         click.echo(
             f"Instance '{name}' does not exist.\n"
             f"  Image  : {target.image_alias}\n"
             f"  Distro : {target.distro} {target.release} ({target.arch})\n"
             f"  User   : {user.username} (uid={user.uid}, gid={user.gid})\n"
-            f"  Home   : {'(empty inside instance)' if no_home else user.home}"
+            f"  Mounts : {mount_summary}"
         )
         if not click.confirm("Launch new instance?", default=False):
             click.echo("Aborted.")
@@ -99,9 +110,17 @@ def main(
 
     # Run first-launch setup if needed
     if not is_setup_done(instance):
-        setup_instance_user(instance, user, no_home=no_home)
+        setup_instance_user(instance, user)
 
     ensure_running(instance)
+
+    # Reconcile mounts (instance must be running; sync_mounts stops/starts if needed)
+    if parsed_mounts is not None:
+        instance.sync()
+        if sync_mounts(instance, parsed_mounts):
+            instance.stop(wait=True)
+            instance.sync()
+            instance.start(wait=True)
 
     # Resolve uid/gid as they exist inside the instance (stored at first-launch)
     instance_uid, instance_gid = get_instance_user_ids(instance)
