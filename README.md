@@ -38,7 +38,7 @@ lxcme [options] [instance_name] [[--] command [args...]]
 | `--release RELEASE` | Override host release name |
 | `--arch ARCH` | Override host architecture |
 | `--root` | Run command as root inside the instance |
-| `--mount HOST_DIR[:INSTANCE_DIR]` | Mount HOST_DIR inside the instance at INSTANCE_DIR (defaults to HOST_DIR). Repeatable. |
+| `--mount HOST_PATH[:INSTANCE_PATH]` | Mount HOST_PATH inside the instance at INSTANCE_PATH (defaults to HOST_PATH). Repeatable. |
 | `-v / --verbose` | Enable debug logging |
 
 ### Examples
@@ -103,7 +103,7 @@ Setup runs exactly once and is idempotent — tracked via the `user.lxcme.setup-
 
 ### Mounts
 
-Directory mounts are managed via `--mount HOST_DIR[:INSTANCE_DIR]`. If `INSTANCE_DIR` is omitted, `HOST_DIR` is used as the path inside the instance.
+Directory mounts are managed via `--mount HOST_PATH[:INSTANCE_PATH]`. If `INSTANCE_PATH` is omitted, `HOST_PATH` is used as the path inside the instance.
 
 Mounts are tracked in the instance config under `user.lxcme.mount.<device>` keys. On each invocation the desired set of mounts is reconciled against the tracked set:
 
