@@ -126,31 +126,49 @@ class TestExecInteractive:
         assert "--user" not in argv
         assert "--group" not in argv
 
-    def test_debian_chroot_set_as_user(self) -> None:
+    def test_extra_env_passed_as_user(self) -> None:
         user = _make_user()
         with patch("os.execvp") as mock_exec:
-            exec_interactive("mybox", user, ["bash", "--login"], 1000, 1000, as_root=False, debian_chroot="lxc")
+            exec_interactive(
+                "mybox", user, ["bash", "--login"], 1000, 1000,
+                as_root=False, extra_env={"debian_chroot": "lxc"},
+            )
 
         argv = mock_exec.call_args[0][1]
-        assert "--env" in argv
+        assert "debian_chroot=lxc" in argv
         idx = argv.index("debian_chroot=lxc")
         assert argv[idx - 1] == "--env"
 
-    def test_debian_chroot_set_as_root(self) -> None:
+    def test_extra_env_passed_as_root(self) -> None:
         user = _make_user()
         with patch("os.execvp") as mock_exec:
-            exec_interactive("mybox", user, ["bash", "--login"], 1000, 1000, as_root=True, debian_chroot="lxc")
+            exec_interactive(
+                "mybox", user, ["bash", "--login"], 1000, 1000,
+                as_root=True, extra_env={"debian_chroot": "lxc"},
+            )
 
         argv = mock_exec.call_args[0][1]
         assert "debian_chroot=lxc" in argv
 
-    def test_debian_chroot_not_set_when_none(self) -> None:
+    def test_no_extra_env_when_none(self) -> None:
         user = _make_user()
         with patch("os.execvp") as mock_exec:
-            exec_interactive("mybox", user, ["bash", "--login"], 1000, 1000, as_root=False, debian_chroot=None)
+            exec_interactive("mybox", user, ["bash", "--login"], 1000, 1000, as_root=False)
 
         argv = mock_exec.call_args[0][1]
         assert not any("debian_chroot" in arg for arg in argv)
+
+    def test_multiple_extra_env_vars(self) -> None:
+        user = _make_user()
+        with patch("os.execvp") as mock_exec:
+            exec_interactive(
+                "mybox", user, ["bash", "--login"], 1000, 1000,
+                as_root=False, extra_env={"FOO": "bar", "BAZ": "qux"},
+            )
+
+        argv = mock_exec.call_args[0][1]
+        assert "FOO=bar" in argv
+        assert "BAZ=qux" in argv
 
 
 class TestExecNoninteractive:
@@ -201,6 +219,49 @@ class TestExecNoninteractive:
         call_kwargs = instance.execute.call_args[1]
         assert call_kwargs["user"] == 0
         assert call_kwargs["group"] == 0
+
+    def test_extra_env_merged_as_user(self) -> None:
+        instance = MagicMock()
+        result = MagicMock()
+        result.exit_code = 0
+        result.stdout = ""
+        result.stderr = ""
+        instance.execute.return_value = result
+
+        user = _make_user()
+        exec_noninteractive(instance, ["env"], user, 1000, 1000, as_root=False, extra_env={"FOO": "bar"})
+
+        env = instance.execute.call_args[1]["environment"]
+        assert env["FOO"] == "bar"
+        assert env["HOME"] == str(user.home)
+
+    def test_extra_env_merged_as_root(self) -> None:
+        instance = MagicMock()
+        result = MagicMock()
+        result.exit_code = 0
+        result.stdout = ""
+        result.stderr = ""
+        instance.execute.return_value = result
+
+        user = _make_user()
+        exec_noninteractive(instance, ["env"], user, 1000, 1000, as_root=True, extra_env={"FOO": "bar"})
+
+        env = instance.execute.call_args[1]["environment"]
+        assert env["FOO"] == "bar"
+
+    def test_extra_env_overrides_base_env(self) -> None:
+        instance = MagicMock()
+        result = MagicMock()
+        result.exit_code = 0
+        result.stdout = ""
+        result.stderr = ""
+        instance.execute.return_value = result
+
+        user = _make_user()
+        exec_noninteractive(instance, ["env"], user, 1000, 1000, as_root=False, extra_env={"HOME": "/custom"})
+
+        env = instance.execute.call_args[1]["environment"]
+        assert env["HOME"] == "/custom"
 
 
 class TestIsInteractive:

@@ -339,19 +339,19 @@ class TestMainDebianChroot:
     def test_debian_chroot_set_for_ubuntu(self) -> None:
         mock_exec = self._run_interactive(_TARGET_UBUNTU)
         _, kwargs = mock_exec.call_args
-        assert kwargs.get("debian_chroot") == "lxc"
+        assert kwargs.get("extra_env", {}).get("debian_chroot") == "lxc"
 
     def test_debian_chroot_set_for_debian(self) -> None:
         target = TargetInfo(distro="debian", release="bookworm", arch="amd64", host_distro="ubuntu")
         mock_exec = self._run_interactive(target)
         _, kwargs = mock_exec.call_args
-        assert kwargs.get("debian_chroot") == "lxc"
+        assert kwargs.get("extra_env", {}).get("debian_chroot") == "lxc"
 
     def test_debian_chroot_not_set_for_non_debian(self) -> None:
         target = TargetInfo(distro="fedora", release="40", arch="amd64", host_distro="ubuntu")
         mock_exec = self._run_interactive(target)
         _, kwargs = mock_exec.call_args
-        assert kwargs.get("debian_chroot") is None
+        assert "debian_chroot" not in kwargs.get("extra_env", {})
 
     def test_debian_chroot_set_when_root(self) -> None:
         runner = CliRunner()
@@ -375,7 +375,93 @@ class TestMainDebianChroot:
             runner.invoke(main, ["--root"])
 
         _, kwargs = mock_exec.call_args
-        assert kwargs.get("debian_chroot") == "lxc"
+        assert kwargs.get("extra_env", {}).get("debian_chroot") == "lxc"
+
+    def test_user_supplied_env_not_overridden_by_debian_chroot(self) -> None:
+        runner = CliRunner()
+        user = _make_user()
+        instance = _make_instance()
+
+        with (
+            patch("lxcme.cli.get_host_info", return_value=_HOST_UBUNTU),
+            patch("lxcme.cli.get_target_info", return_value=_TARGET_UBUNTU),
+            patch("lxcme.cli.get_current_user", return_value=user),
+            patch("lxcme.cli.pylxd.Client"),
+            patch("lxcme.cli.find_instance", return_value=instance),
+            patch("lxcme.cli.is_setup_done", return_value=True),
+            patch("lxcme.cli.ensure_running"),
+            patch("lxcme.cli.get_tracked_mounts", return_value=[]),
+            patch("lxcme.cli.sync_mounts", return_value=False),
+            patch("lxcme.cli.get_instance_user_ids", return_value=_INSTANCE_IDS),
+            patch("lxcme.cli.is_interactive", return_value=True),
+            patch("lxcme.cli.exec_interactive") as mock_exec,
+        ):
+            runner.invoke(main, ["--env", "debian_chroot=custom"])
+
+        _, kwargs = mock_exec.call_args
+        assert kwargs.get("extra_env", {}).get("debian_chroot") == "custom"
+
+
+class TestMainEnvVars:
+    def _run(self, args: list[str], *, interactive: bool = True) -> MagicMock:
+        runner = CliRunner()
+        user = _make_user()
+        instance = _make_instance()
+        mock_name = "exec_interactive" if interactive else "exec_noninteractive"
+        exec_result = (0, "", "")
+
+        with (
+            patch("lxcme.cli.get_host_info", return_value=_HOST_UBUNTU),
+            patch("lxcme.cli.get_target_info", return_value=_TARGET_UBUNTU),
+            patch("lxcme.cli.get_current_user", return_value=user),
+            patch("lxcme.cli.pylxd.Client"),
+            patch("lxcme.cli.find_instance", return_value=instance),
+            patch("lxcme.cli.is_setup_done", return_value=True),
+            patch("lxcme.cli.ensure_running"),
+            patch("lxcme.cli.get_tracked_mounts", return_value=[]),
+            patch("lxcme.cli.sync_mounts", return_value=False),
+            patch("lxcme.cli.get_instance_user_ids", return_value=_INSTANCE_IDS),
+            patch("lxcme.cli.is_interactive", return_value=interactive),
+            patch(f"lxcme.cli.{mock_name}", return_value=exec_result if not interactive else None) as mock_exec,
+        ):
+            runner.invoke(main, args)
+
+        return mock_exec
+
+    def test_single_env_var_passed_to_interactive(self) -> None:
+        mock_exec = self._run(["--env", "FOO=bar"])
+        _, kwargs = mock_exec.call_args
+        assert kwargs.get("extra_env", {}).get("FOO") == "bar"
+
+    def test_multiple_env_vars_passed_to_interactive(self) -> None:
+        mock_exec = self._run(["--env", "FOO=bar", "--env", "BAZ=qux"])
+        _, kwargs = mock_exec.call_args
+        env = kwargs.get("extra_env", {})
+        assert env.get("FOO") == "bar"
+        assert env.get("BAZ") == "qux"
+
+    def test_env_var_passed_to_noninteractive(self) -> None:
+        mock_exec = self._run(["--env", "FOO=bar", "--", "printenv", "FOO"], interactive=False)
+        _, kwargs = mock_exec.call_args
+        assert kwargs.get("extra_env", {}).get("FOO") == "bar"
+
+    def test_no_env_vars_passes_only_implicit_env(self) -> None:
+        mock_exec = self._run([])
+        _, kwargs = mock_exec.call_args
+        env = kwargs.get("extra_env", {})
+        assert "FOO" not in env
+        # debian_chroot is implicitly added for ubuntu targets
+        assert "debian_chroot" in env
+
+    def test_env_var_with_equals_in_value(self) -> None:
+        mock_exec = self._run(["--env", "TOKEN=abc=def"])
+        _, kwargs = mock_exec.call_args
+        assert kwargs.get("extra_env", {}).get("TOKEN") == "abc=def"
+
+    def test_invalid_env_var_rejected(self) -> None:
+        runner = CliRunner()
+        result = runner.invoke(main, ["--env", "NOEQUALS"])
+        assert result.exit_code != 0
 
 
 class TestMainMounts:
