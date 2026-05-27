@@ -141,14 +141,16 @@ def sync_mounts(instance: pylxd.models.Instance, mounts: list[tuple[str, str]]) 
     Each mount is a (host_path, instance_path) pair. Tracked via
     user.lxcme.mount.<device> config keys. Returns True if any change was made.
     """
-    desired: dict[str, tuple[str, str]] = {_mount_device_name(host): (host, inst) for host, inst in mounts}
+    desired: dict[str, tuple[str, str]] = {
+        _mount_device_name(host_path): (host_path, instance_path) for host_path, instance_path in mounts
+    }
 
     current: dict[str, tuple[str, str]] = {}
     for key, val in instance.config.items():
         if key.startswith(MOUNT_KEY_PREFIX):
             device = key[len(MOUNT_KEY_PREFIX) :]
-            host, _, inst = val.partition(":")
-            current[device] = (host, inst)
+            host_path, _, instance_path = val.partition(":")
+            current[device] = (host_path, instance_path)
 
     if desired == current:
         return False
@@ -161,10 +163,10 @@ def sync_mounts(instance: pylxd.models.Instance, mounts: list[tuple[str, str]]) 
             logger.info("Removed mount device '%s'.", device)
 
     # Add or update devices
-    for device, (host, inst) in desired.items():
-        instance.devices[device] = {"type": "disk", "source": host, "path": inst}
-        instance.config[MOUNT_KEY_PREFIX + device] = f"{host}:{inst}"
-        logger.info("Attached '%s' -> '%s' as device '%s'.", host, inst, device)
+    for device, (host_path, instance_path) in desired.items():
+        instance.devices[device] = {"type": "disk", "source": host_path, "path": instance_path}
+        instance.config[MOUNT_KEY_PREFIX + device] = f"{host_path}:{instance_path}"
+        logger.info("Attached '%s' -> '%s' as device '%s'.", host_path, instance_path, device)
 
     instance.save(wait=True)
     return True

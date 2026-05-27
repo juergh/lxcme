@@ -37,10 +37,10 @@ def _resolve_command(command: tuple[str, ...]) -> list[str]:
 def _parse_mount(value: str) -> tuple[str, str]:
     """Parse a --mount value into (host_path, instance_path).
 
-    Format: <host-dir>[:<instance-dir>]. If instance-dir is omitted, host-dir is used.
+    Format: <host-path>[:<instance-path>]. If instance-path is omitted, host-path is used.
     """
-    host, sep, inst = value.partition(":")
-    return host, inst if sep else host
+    host_path, sep, instance_path = value.partition(":")
+    return host_path, instance_path if sep else host_path
 
 
 @click.command(
@@ -51,8 +51,8 @@ def _parse_mount(value: str) -> tuple[str, str]:
     "--mount",
     "mounts",
     multiple=True,
-    metavar="HOST_DIR[:INSTANCE_DIR]",
-    help="Mount HOST_DIR inside the instance at INSTANCE_DIR (defaults to HOST_DIR). Repeatable.",
+    metavar="HOST_PATH[:INSTANCE_PATH]",
+    help="Mount HOST_PATH inside the instance at INSTANCE_PATH (defaults to HOST_PATH). Repeatable.",
 )
 @click.option("--distro", default=None, metavar="DISTRO", help="Override host distribution name.")
 @click.option("--release", default=None, metavar="RELEASE", help="Override host distribution release.")
@@ -91,7 +91,9 @@ def main(
     is_new = instance is None
 
     if is_new:
-        mount_summary = ", ".join(f"{h}:{i}" for h, i in parsed_mounts) or "(none)"
+        mount_summary = (
+            ", ".join(f"{host_path}:{instance_path}" for host_path, instance_path in parsed_mounts) or "(none)"
+        )
         click.echo(
             f"Instance '{name}' does not exist.\n"
             f"  Image  : {target.image_alias}\n"
