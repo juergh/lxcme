@@ -63,7 +63,6 @@ def _parse_env(value: str) -> tuple[str, str]:
     return key, val
 
 
-
 @click.command(
     context_settings={"ignore_unknown_options": True, "allow_extra_args": True},
 )
@@ -93,6 +92,7 @@ def _parse_env(value: str) -> tuple[str, str]:
 @click.option("--release", default=None, metavar="RELEASE", help="Override host distribution release.")
 @click.option("--arch", default=None, metavar="ARCH", help="Override host architecture.")
 @click.option("--verbose", "-v", is_flag=True, default=False, help="Enable debug logging.")
+@click.option("--cwd", "cwd", default=None, metavar="PATH", help="CWD inside the instance (default: user home dir).")
 @click.argument("instance_name", required=False, default=None)
 @click.argument("command", nargs=-1, type=click.UNPROCESSED)
 def main(
@@ -104,6 +104,7 @@ def main(
     release: str | None,
     arch: str | None,
     verbose: bool,
+    cwd: str | None,
     instance_name: str | None,
     command: tuple[str, ...],
 ) -> None:
@@ -182,13 +183,26 @@ def main(
 
     if is_interactive(resolved_command):
         exec_interactive(
-            name, user, resolved_command, instance_uid, instance_gid,
-            as_root=root, extra_env=parsed_env,
+            name,
+            user,
+            resolved_command,
+            instance_uid,
+            instance_gid,
+            as_root=root,
+            extra_env=parsed_env,
+            cwd=cwd,
         )
         # exec_interactive replaces the process; code below is unreachable
     else:
         exit_code, stdout, stderr = exec_noninteractive(
-            instance, resolved_command, user, instance_uid, instance_gid, as_root=root, extra_env=parsed_env,
+            instance,
+            resolved_command,
+            user,
+            instance_uid,
+            instance_gid,
+            as_root=root,
+            extra_env=parsed_env,
+            cwd=cwd,
         )
         if stdout:
             click.echo(stdout, nl=False)

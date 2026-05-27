@@ -68,9 +68,13 @@ def exec_interactive(
     *,
     as_root: bool,
     extra_env: dict[str, str] | None = None,
+    cwd: str | None = None,
 ) -> None:
     """Replace current process with interactive lxc exec session (never returns)."""
     argv = ["lxc", "exec", instance_name]
+
+    effective_cwd = cwd if cwd is not None else str(user.home)
+    argv += ["--cwd", effective_cwd]
 
     if not as_root:
         argv += [
@@ -78,8 +82,6 @@ def exec_interactive(
             str(instance_uid),
             "--group",
             str(instance_gid),
-            "--cwd",
-            str(user.home),
             "--env",
             f"HOME={user.home}",
             "--env",
@@ -104,11 +106,12 @@ def exec_noninteractive(
     *,
     as_root: bool,
     extra_env: dict[str, str] | None = None,
+    cwd: str | None = None,
 ) -> tuple[int, str, str]:
     """Run command non-interactively inside instance, returning (exit_code, stdout, stderr)."""
     uid = 0 if as_root else instance_uid
     gid = 0 if as_root else instance_gid
-    cwd = "/" if as_root else str(user.home)
+    effective_cwd = cwd if cwd is not None else ("/" if as_root else str(user.home))
     env: dict[str, str] = (
         {}
         if as_root
@@ -121,7 +124,7 @@ def exec_noninteractive(
     if extra_env:
         env.update(extra_env)
 
-    result = instance.execute(command, user=uid, group=gid, cwd=cwd, environment=env)
+    result = instance.execute(command, user=uid, group=gid, cwd=effective_cwd, environment=env)
     return result.exit_code, result.stdout, result.stderr
 
 
