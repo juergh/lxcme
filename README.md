@@ -39,6 +39,7 @@ lxcme [options] [instance_name] [[--] command [args...]]
 | `--arch ARCH` | Override host architecture |
 | `--root` | Run command as root inside the instance |
 | `--mount HOST_PATH[:INSTANCE_PATH]` | Mount HOST_PATH inside the instance at INSTANCE_PATH (defaults to HOST_PATH). Repeatable. |
+| `--keep-mounts` | Skip mount reconciliation and keep the instance's current mounts as-is. |
 | `-v / --verbose` | Enable debug logging |
 
 ### Examples
