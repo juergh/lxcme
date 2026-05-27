@@ -50,6 +50,18 @@ def _parse_mount(value: str) -> tuple[str, str]:
     return host_path, instance_path if sep else host_path
 
 
+def _parse_env(value: str) -> tuple[str, str]:
+    """Parse a --env value into (key, value).
+
+    Format: KEY=VALUE.
+    """
+    key, sep, val = value.partition("=")
+    if not sep:
+        raise click.BadParameter(f"expected KEY=VALUE, got {value!r}", param_hint="'--env'")
+    return key, val
+
+
+
 @click.command(
     context_settings={"ignore_unknown_options": True, "allow_extra_args": True},
 )
@@ -68,6 +80,13 @@ def _parse_mount(value: str) -> tuple[str, str]:
     default=False,
     help="Skip mount reconciliation and keep the instance's current mounts as-is.",
 )
+@click.option(
+    "--env",
+    "env_vars",
+    multiple=True,
+    metavar="KEY=VALUE",
+    help="Set an environment variable inside the instance. Repeatable.",
+)
 @click.option("--distro", default=None, metavar="DISTRO", help="Override host distribution name.")
 @click.option("--release", default=None, metavar="RELEASE", help="Override host distribution release.")
 @click.option("--arch", default=None, metavar="ARCH", help="Override host architecture.")
@@ -78,6 +97,7 @@ def main(
     root: bool,
     mounts: tuple[str, ...],
     keep_mounts: bool,
+    env_vars: tuple[str, ...],
     distro: str | None,
     release: str | None,
     arch: str | None,
@@ -99,6 +119,7 @@ def main(
     name = instance_name or target.instance_alias
     resolved_command = _resolve_command(tuple(cmd_list))
     parsed_mounts = [_parse_mount(m) for m in mounts]
+    parsed_env = dict(_parse_env(e) for e in env_vars)
 
     client = pylxd.Client()
 
@@ -154,16 +175,18 @@ def main(
     # Resolve uid/gid as they exist inside the instance (stored at first-launch)
     instance_uid, instance_gid = get_instance_user_ids(instance)
 
-    debian_chroot = "lxc" if target.distro in ("debian", "ubuntu") else None
+    if target.distro in ("debian", "ubuntu"):
+        parsed_env.setdefault("debian_chroot", "lxc")
 
     if is_interactive(resolved_command):
         exec_interactive(
-            name, user, resolved_command, instance_uid, instance_gid, as_root=root, debian_chroot=debian_chroot
+            name, user, resolved_command, instance_uid, instance_gid,
+            as_root=root, extra_env=parsed_env,
         )
         # exec_interactive replaces the process; code below is unreachable
     else:
         exit_code, stdout, stderr = exec_noninteractive(
-            instance, resolved_command, user, instance_uid, instance_gid, as_root=root
+            instance, resolved_command, user, instance_uid, instance_gid, as_root=root, extra_env=parsed_env,
         )
         if stdout:
             click.echo(stdout, nl=False)

@@ -67,7 +67,7 @@ def exec_interactive(
     instance_gid: int,
     *,
     as_root: bool,
-    debian_chroot: str | None = None,
+    extra_env: dict[str, str] | None = None,
 ) -> None:
     """Replace current process with interactive lxc exec session (never returns)."""
     argv = ["lxc", "exec", instance_name]
@@ -88,8 +88,8 @@ def exec_interactive(
             f"LOGNAME={user.username}",
         ]
 
-    if debian_chroot is not None:
-        argv += ["--env", f"debian_chroot={debian_chroot}"]
+    for key, value in (extra_env or {}).items():
+        argv += ["--env", f"{key}={value}"]
 
     argv += ["--"] + command
     os.execvp("lxc", argv)
@@ -103,12 +103,13 @@ def exec_noninteractive(
     instance_gid: int,
     *,
     as_root: bool,
+    extra_env: dict[str, str] | None = None,
 ) -> tuple[int, str, str]:
     """Run command non-interactively inside instance, returning (exit_code, stdout, stderr)."""
     uid = 0 if as_root else instance_uid
     gid = 0 if as_root else instance_gid
     cwd = "/" if as_root else str(user.home)
-    env = (
+    env: dict[str, str] = (
         {}
         if as_root
         else {
@@ -117,6 +118,8 @@ def exec_noninteractive(
             "LOGNAME": user.username,
         }
     )
+    if extra_env:
+        env.update(extra_env)
 
     result = instance.execute(command, user=uid, group=gid, cwd=cwd, environment=env)
     return result.exit_code, result.stdout, result.stderr
