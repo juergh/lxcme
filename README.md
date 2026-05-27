@@ -38,7 +38,7 @@ lxcme [options] [instance_name] [[--] command [args...]]
 | `--release RELEASE` | Override host release name |
 | `--arch ARCH` | Override host architecture |
 | `--root` | Run command as root inside the instance |
-| `--no-home` | Create an empty home dir inside the instance instead of mounting the host home |
+| `--mount HOST_DIR[:INSTANCE_DIR]` | Mount HOST_DIR inside the instance at INSTANCE_DIR (defaults to HOST_DIR). Repeatable. |
 | `-v / --verbose` | Enable debug logging |
 
 ### Examples
@@ -56,11 +56,17 @@ lxcme my-box -- python3 script.py
 # Run as root
 lxcme --root -- apt update
 
+# Mount host home directory into the instance
+lxcme --mount /home/alice
+
+# Mount a project directory at a custom path inside the instance
+lxcme --mount /host/projects:/work
+
+# Mount multiple directories
+lxcme --mount /home/alice --mount /data:/mnt/data
+
 # Use a specific distro/release
 lxcme --distro debian --release bookworm
-
-# Keep home inside the container (don't mount host home)
-lxcme --no-home
 ```
 
 ## How it works
@@ -88,14 +94,28 @@ If the image is not cached locally it is downloaded automatically before the con
 The first time an instance is started, `lxcme` provisions it:
 
 1. Ensures the current user and group exist inside the container (creates them if absent).
-2. Creates an empty home directory inside the container (only with `--no-home`).
-3. Grants the user passwordless `sudo` via `/etc/sudoers.d/<user>`.
-4. Writes `raw.idmap` config to map the host uid/gid to the uid/gid the user has inside the container.
-5. Attaches the host home directory as a disk device at the same path (skipped with `--no-home`).
-6. Stores the container-side uid/gid in the instance config.
-7. Restarts the container to apply the idmap and disk device config.
+2. Grants the user passwordless `sudo` via `/etc/sudoers.d/<user>`.
+3. Writes `raw.idmap` config to map the host uid/gid to the uid/gid the user has inside the container.
+4. Stores the container-side uid/gid in the instance config.
+5. Restarts the container to apply the idmap config.
 
 Setup runs exactly once and is idempotent — tracked via the `user.lxcme.setup-done` instance config key.
+
+### Mounts
+
+Directory mounts are managed via `--mount HOST_DIR[:INSTANCE_DIR]`. If `INSTANCE_DIR` is omitted, `HOST_DIR` is used as the path inside the instance.
+
+Mounts are tracked in the instance config under `user.lxcme.mount.<device>` keys. On each invocation the desired set of mounts is reconciled against the tracked set:
+
+- New mounts are attached as LXD disk devices.
+- Mounts no longer specified are removed.
+- If any change is made, the instance is restarted to apply the new device config.
+
+To mount your home directory:
+
+```bash
+lxcme --mount /home/alice
+```
 
 ### Command execution
 
