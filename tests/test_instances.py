@@ -130,8 +130,13 @@ class TestExecInteractive:
         user = _make_user()
         with patch("os.execvp") as mock_exec:
             exec_interactive(
-                "mybox", user, ["bash", "--login"], 1000, 1000,
-                as_root=False, extra_env={"debian_chroot": "lxc"},
+                "mybox",
+                user,
+                ["bash", "--login"],
+                1000,
+                1000,
+                as_root=False,
+                extra_env={"debian_chroot": "lxc"},
             )
 
         argv = mock_exec.call_args[0][1]
@@ -143,14 +148,54 @@ class TestExecInteractive:
         user = _make_user()
         with patch("os.execvp") as mock_exec:
             exec_interactive(
-                "mybox", user, ["bash", "--login"], 1000, 1000,
-                as_root=True, extra_env={"debian_chroot": "lxc"},
+                "mybox",
+                user,
+                ["bash", "--login"],
+                1000,
+                1000,
+                as_root=True,
+                extra_env={"debian_chroot": "lxc"},
             )
 
         argv = mock_exec.call_args[0][1]
         assert "debian_chroot=lxc" in argv
 
-    def test_no_extra_env_when_none(self) -> None:
+    def test_cwd_defaults_to_user_home_as_user(self) -> None:
+        user = _make_user()
+        with patch("os.execvp") as mock_exec:
+            exec_interactive("mybox", user, ["bash", "--login"], 1000, 1000, as_root=False)
+
+        argv = mock_exec.call_args[0][1]
+        idx = argv.index("--cwd")
+        assert argv[idx + 1] == str(user.home)
+
+    def test_cwd_override_used_as_user(self) -> None:
+        user = _make_user()
+        with patch("os.execvp") as mock_exec:
+            exec_interactive("mybox", user, ["bash", "--login"], 1000, 1000, as_root=False, cwd="/custom/path")
+
+        argv = mock_exec.call_args[0][1]
+        idx = argv.index("--cwd")
+        assert argv[idx + 1] == "/custom/path"
+
+    def test_cwd_override_used_as_root(self) -> None:
+        user = _make_user()
+        with patch("os.execvp") as mock_exec:
+            exec_interactive("mybox", user, ["bash", "--login"], 1000, 1000, as_root=True, cwd="/custom/path")
+
+        argv = mock_exec.call_args[0][1]
+        idx = argv.index("--cwd")
+        assert argv[idx + 1] == "/custom/path"
+
+    def test_cwd_not_in_argv_when_root_no_cwd(self) -> None:
+        user = _make_user()
+        with patch("os.execvp") as mock_exec:
+            exec_interactive("mybox", user, ["bash", "--login"], 1000, 1000, as_root=True)
+
+        argv = mock_exec.call_args[0][1]
+        idx = argv.index("--cwd")
+        assert argv[idx + 1] == str(user.home)
+
         user = _make_user()
         with patch("os.execvp") as mock_exec:
             exec_interactive("mybox", user, ["bash", "--login"], 1000, 1000, as_root=False)
@@ -162,8 +207,13 @@ class TestExecInteractive:
         user = _make_user()
         with patch("os.execvp") as mock_exec:
             exec_interactive(
-                "mybox", user, ["bash", "--login"], 1000, 1000,
-                as_root=False, extra_env={"FOO": "bar", "BAZ": "qux"},
+                "mybox",
+                user,
+                ["bash", "--login"],
+                1000,
+                1000,
+                as_root=False,
+                extra_env={"FOO": "bar", "BAZ": "qux"},
             )
 
         argv = mock_exec.call_args[0][1]
@@ -219,6 +269,46 @@ class TestExecNoninteractive:
         call_kwargs = instance.execute.call_args[1]
         assert call_kwargs["user"] == 0
         assert call_kwargs["group"] == 0
+
+    def test_cwd_defaults_to_user_home_as_user(self) -> None:
+        instance = MagicMock()
+        result = MagicMock(exit_code=0, stdout="", stderr="")
+        instance.execute.return_value = result
+
+        user = _make_user()
+        exec_noninteractive(instance, ["pwd"], user, 1000, 1000, as_root=False)
+
+        assert instance.execute.call_args[1]["cwd"] == str(user.home)
+
+    def test_cwd_defaults_to_root_dir_as_root(self) -> None:
+        instance = MagicMock()
+        result = MagicMock(exit_code=0, stdout="", stderr="")
+        instance.execute.return_value = result
+
+        user = _make_user()
+        exec_noninteractive(instance, ["pwd"], user, 1000, 1000, as_root=True)
+
+        assert instance.execute.call_args[1]["cwd"] == "/"
+
+    def test_cwd_override_used_as_user(self) -> None:
+        instance = MagicMock()
+        result = MagicMock(exit_code=0, stdout="", stderr="")
+        instance.execute.return_value = result
+
+        user = _make_user()
+        exec_noninteractive(instance, ["pwd"], user, 1000, 1000, as_root=False, cwd="/custom/path")
+
+        assert instance.execute.call_args[1]["cwd"] == "/custom/path"
+
+    def test_cwd_override_used_as_root(self) -> None:
+        instance = MagicMock()
+        result = MagicMock(exit_code=0, stdout="", stderr="")
+        instance.execute.return_value = result
+
+        user = _make_user()
+        exec_noninteractive(instance, ["pwd"], user, 1000, 1000, as_root=True, cwd="/custom/path")
+
+        assert instance.execute.call_args[1]["cwd"] == "/custom/path"
 
     def test_extra_env_merged_as_user(self) -> None:
         instance = MagicMock()

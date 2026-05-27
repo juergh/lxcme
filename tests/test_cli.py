@@ -634,3 +634,56 @@ class TestMainKeepMounts:
             result = runner.invoke(main, ["--keep-mounts", "--mount", "/foo"])
 
         assert "Mounts will change" not in result.output
+
+
+class TestMainCwd:
+    def _run(self, args: list[str], *, interactive: bool = True) -> MagicMock:
+        runner = CliRunner()
+        user = _make_user()
+        instance = _make_instance()
+        mock_name = "exec_interactive" if interactive else "exec_noninteractive"
+        exec_result = (0, "", "")
+
+        with (
+            patch("lxcme.cli.get_host_info", return_value=_HOST_UBUNTU),
+            patch("lxcme.cli.get_target_info", return_value=_TARGET_UBUNTU),
+            patch("lxcme.cli.get_current_user", return_value=user),
+            patch("lxcme.cli.pylxd.Client"),
+            patch("lxcme.cli.find_instance", return_value=instance),
+            patch("lxcme.cli.is_setup_done", return_value=True),
+            patch("lxcme.cli.ensure_running"),
+            patch("lxcme.cli.get_tracked_mounts", return_value=[]),
+            patch("lxcme.cli.sync_mounts", return_value=False),
+            patch("lxcme.cli.get_instance_user_ids", return_value=_INSTANCE_IDS),
+            patch("lxcme.cli.is_interactive", return_value=interactive),
+            patch(f"lxcme.cli.{mock_name}", return_value=exec_result if not interactive else None) as mock_exec,
+        ):
+            runner.invoke(main, args)
+
+        return mock_exec
+
+    def test_cwd_passed_to_interactive(self) -> None:
+        mock_exec = self._run(["--cwd", "/work"])
+        _, kwargs = mock_exec.call_args
+        assert kwargs.get("cwd") == "/work"
+
+    def test_cwd_passed_to_noninteractive(self) -> None:
+        mock_exec = self._run(["--cwd", "/work", "--", "pwd"], interactive=False)
+        _, kwargs = mock_exec.call_args
+        assert kwargs.get("cwd") == "/work"
+
+    def test_cwd_defaults_to_none_interactive(self) -> None:
+        mock_exec = self._run([])
+        _, kwargs = mock_exec.call_args
+        assert kwargs.get("cwd") is None
+
+    def test_cwd_defaults_to_none_noninteractive(self) -> None:
+        mock_exec = self._run(["--", "pwd"], interactive=False)
+        _, kwargs = mock_exec.call_args
+        assert kwargs.get("cwd") is None
+
+    def test_cwd_passed_with_root_flag(self) -> None:
+        mock_exec = self._run(["--root", "--cwd", "/tmp"])
+        _, kwargs = mock_exec.call_args
+        assert kwargs.get("cwd") == "/tmp"
+        assert kwargs.get("as_root") is True
