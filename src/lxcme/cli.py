@@ -109,7 +109,9 @@ def main(
     debian_chroot = "(lxc)" if target.distro in ("debian", "ubuntu") else None
 
     if is_interactive(resolved_command):
-        exec_interactive(name, user, resolved_command, instance_uid, instance_gid, as_root=root, debian_chroot=debian_chroot)
+        exec_interactive(
+            name, user, resolved_command, instance_uid, instance_gid, as_root=root, debian_chroot=debian_chroot
+        )
         # exec_interactive replaces the process; code below is unreachable
     else:
         exit_code, stdout, stderr = exec_noninteractive(

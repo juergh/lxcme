@@ -110,15 +110,15 @@ class TestEnsureUser:
 class TestConfigureIdmap:
     def test_sets_raw_idmap(self) -> None:
         instance = MagicMock()
-        instance.config = {}
         user = _make_user(uid=1234, gid=5678)
 
         configure_idmap(instance, user, instance_uid=1000, instance_gid=1000)
 
-        assert "raw.idmap" in instance.config
-        assert "uid 1234 1000" in instance.config["raw.idmap"]
-        assert "gid 5678 1000" in instance.config["raw.idmap"]
-        instance.save.assert_called_once_with(wait=True)
+        instance.patch.assert_called_once()
+        payload = instance.patch.call_args[0][0]
+        idmap = payload["config"]["raw.idmap"]
+        assert "uid 1234 1000" in idmap
+        assert "gid 5678 1000" in idmap
 
 
 class TestSetupHomeMount:

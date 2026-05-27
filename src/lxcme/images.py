@@ -33,9 +33,7 @@ def find_local_image(client: pylxd.Client, alias: str) -> pylxd.models.Image | N
     return None
 
 
-def ensure_image(
-    client: pylxd.Client, distro: str, release: str, local_alias: str
-) -> pylxd.models.Image:
+def ensure_image(client: pylxd.Client, distro: str, release: str, local_alias: str) -> pylxd.models.Image:
     """Ensure local LXC image exists, downloading from simplestreams if necessary."""
     image = find_local_image(client, local_alias)
     if image is not None:
