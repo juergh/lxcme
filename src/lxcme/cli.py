@@ -127,7 +127,7 @@ def main(
     # Resolve uid/gid as they exist inside the instance (stored at first-launch)
     instance_uid, instance_gid = get_instance_user_ids(instance)
 
-    debian_chroot = "(lxc)" if target.distro in ("debian", "ubuntu") else None
+    debian_chroot = "lxc" if target.distro in ("debian", "ubuntu") else None
 
     if is_interactive(resolved_command):
         exec_interactive(
