@@ -41,6 +41,7 @@ lxcme [options] [instance_name] [[--] command [args...]]
 | `--mount HOST_PATH[:INSTANCE_PATH]` | Mount HOST_PATH inside the instance at INSTANCE_PATH (defaults to HOST_PATH). Repeatable. |
 | `--keep-mounts` | Skip mount reconciliation and keep the instance's current mounts as-is. |
 | `--env KEY=VALUE` | Set an environment variable inside the instance. Repeatable. |
+| `--cwd PATH` | Set the working directory inside the instance (default: user home dir; `/` when `--root` is used without `--cwd`). |
 | `-v / --verbose` | Enable debug logging |
 
 ### Examples
@@ -72,6 +73,10 @@ lxcme --distro debian --release bookworm
 
 # Pass environment variables into the instance
 lxcme --env FOO=bar --env BAZ=qux -- printenv FOO
+
+# Set working directory inside the instance
+lxcme --cwd /opt/myapp -- bash
+lxcme --root --cwd /etc -- ls
 ```
 
 ## How it works
@@ -127,10 +132,10 @@ lxcme --mount /home/alice
 Commands are run as the current user inside the container:
 
 ```
-lxc exec <instance> --user <uid> --group <gid> --cwd <home> -- <command>
+lxc exec <instance> --cwd <cwd> --user <uid> --group <gid> -- <command>
 ```
 
-The uid/gid used are the ones the user has *inside* the container (stored at first launch), not the host uid/gid. This ensures correct behaviour even when the two differ.
+The working directory defaults to the user's home directory inside the instance, or `/` for root. Use `--cwd PATH` to override for any invocation regardless of `--root`.
 
 - **Interactive** commands (shells: `bash`, `sh`, `zsh`, `fish`, etc.) use `os.execvp` to replace the current process, giving a proper TTY and correct signal handling.
 - **Non-interactive** commands use `pylxd`'s `execute()`.
