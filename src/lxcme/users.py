@@ -135,6 +135,16 @@ def _mount_device_name(host_path: str) -> str:
     return host_path.strip("/").replace("/", "_") or "root"
 
 
+def get_tracked_mounts(instance: pylxd.models.Instance) -> list[tuple[str, str]]:
+    """Return currently tracked mounts as (host_path, instance_path) pairs."""
+    mounts = []
+    for key, val in instance.config.items():
+        if key.startswith(MOUNT_KEY_PREFIX):
+            host_path, _, instance_path = val.partition(":")
+            mounts.append((host_path, instance_path))
+    return mounts
+
+
 def sync_mounts(instance: pylxd.models.Instance, mounts: list[tuple[str, str]]) -> bool:
     """Reconcile instance disk devices against desired mounts.
 

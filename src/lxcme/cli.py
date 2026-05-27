@@ -18,7 +18,14 @@ from lxcme.instances import (
     find_instance,
     is_interactive,
 )
-from lxcme.users import get_current_user, get_instance_user_ids, is_setup_done, setup_instance_user, sync_mounts
+from lxcme.users import (
+    get_current_user,
+    get_instance_user_ids,
+    get_tracked_mounts,
+    is_setup_done,
+    setup_instance_user,
+    sync_mounts,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -116,13 +123,22 @@ def main(
 
     ensure_running(instance)
 
-    # Reconcile mounts (instance must be running; sync_mounts stops/starts if needed)
-    if parsed_mounts is not None:
+    # On existing instances, prompt if mounts differ from what was last applied
+    instance.sync()
+    if not is_new and parsed_mounts != get_tracked_mounts(instance):
+        current = get_tracked_mounts(instance)
+        current_str = ", ".join(f"{h}:{i}" for h, i in current) or "(none)"
+        desired_str = ", ".join(f"{h}:{i}" for h, i in parsed_mounts) or "(none)"
+        click.echo(f"Mounts will change for instance '{name}':\n  Current : {current_str}\n  New     : {desired_str}")
+        if not click.confirm("Apply new mounts? (instance will restart)", default=False):
+            click.echo("Aborted.")
+            sys.exit(0)
+
+    # Reconcile mounts; restart instance if anything changed
+    if sync_mounts(instance, parsed_mounts):
+        instance.stop(wait=True)
         instance.sync()
-        if sync_mounts(instance, parsed_mounts):
-            instance.stop(wait=True)
-            instance.sync()
-            instance.start(wait=True)
+        instance.start(wait=True)
 
     # Resolve uid/gid as they exist inside the instance (stored at first-launch)
     instance_uid, instance_gid = get_instance_user_ids(instance)
