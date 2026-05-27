@@ -61,6 +61,13 @@ def _parse_mount(value: str) -> tuple[str, str]:
     metavar="HOST_PATH[:INSTANCE_PATH]",
     help="Mount HOST_PATH inside the instance at INSTANCE_PATH (defaults to HOST_PATH). Repeatable.",
 )
+@click.option(
+    "--keep-mounts",
+    "keep_mounts",
+    is_flag=True,
+    default=False,
+    help="Skip mount reconciliation and keep the instance's current mounts as-is.",
+)
 @click.option("--distro", default=None, metavar="DISTRO", help="Override host distribution name.")
 @click.option("--release", default=None, metavar="RELEASE", help="Override host distribution release.")
 @click.option("--arch", default=None, metavar="ARCH", help="Override host architecture.")
@@ -70,6 +77,7 @@ def _parse_mount(value: str) -> tuple[str, str]:
 def main(
     root: bool,
     mounts: tuple[str, ...],
+    keep_mounts: bool,
     distro: str | None,
     release: str | None,
     arch: str | None,
@@ -124,21 +132,24 @@ def main(
     ensure_running(instance)
 
     # On existing instances, prompt if mounts differ from what was last applied
-    instance.sync()
-    if not is_new and parsed_mounts != get_tracked_mounts(instance):
-        current = get_tracked_mounts(instance)
-        current_str = ", ".join(f"{h}:{i}" for h, i in current) or "(none)"
-        desired_str = ", ".join(f"{h}:{i}" for h, i in parsed_mounts) or "(none)"
-        click.echo(f"Mounts will change for instance '{name}':\n  Current : {current_str}\n  New     : {desired_str}")
-        if not click.confirm("Apply new mounts? (instance will restart)", default=False):
-            click.echo("Aborted.")
-            sys.exit(0)
-
-    # Reconcile mounts; restart instance if anything changed
-    if sync_mounts(instance, parsed_mounts):
-        instance.stop(wait=True)
+    if not keep_mounts:
         instance.sync()
-        instance.start(wait=True)
+        if not is_new and parsed_mounts != get_tracked_mounts(instance):
+            current = get_tracked_mounts(instance)
+            current_str = ", ".join(f"{h}:{i}" for h, i in current) or "(none)"
+            desired_str = ", ".join(f"{h}:{i}" for h, i in parsed_mounts) or "(none)"
+            click.echo(
+                f"Mounts will change for instance '{name}':\n  Current : {current_str}\n  New     : {desired_str}"
+            )
+            if not click.confirm("Apply new mounts? (instance will restart)", default=False):
+                click.echo("Aborted.")
+                sys.exit(0)
+
+        # Reconcile mounts; restart instance if anything changed
+        if sync_mounts(instance, parsed_mounts):
+            instance.stop(wait=True)
+            instance.sync()
+            instance.start(wait=True)
 
     # Resolve uid/gid as they exist inside the instance (stored at first-launch)
     instance_uid, instance_gid = get_instance_user_ids(instance)
