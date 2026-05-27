@@ -109,7 +109,7 @@ Mounts are tracked in the instance config under `user.lxcme.mount.<device>` keys
 
 - New mounts are attached as LXD disk devices.
 - Mounts no longer specified are removed.
-- If any change is made, the instance is restarted to apply the new device config.
+- If any change is made, you will be prompted to confirm before the instance is restarted to apply the new device config.
 
 To mount your home directory:
 
