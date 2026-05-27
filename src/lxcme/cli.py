@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import sys
 
 import click
@@ -47,6 +48,7 @@ def _parse_mount(value: str) -> tuple[str, str]:
     Format: <host-path>[:<instance-path>]. If instance-path is omitted, host-path is used.
     """
     host_path, sep, instance_path = value.partition(":")
+    host_path = os.path.realpath(host_path)
     return host_path, instance_path if sep else host_path
 
 
