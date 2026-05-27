@@ -329,13 +329,13 @@ class TestMainDebianChroot:
     def test_debian_chroot_set_for_ubuntu(self) -> None:
         mock_exec = self._run_interactive(_TARGET_UBUNTU)
         _, kwargs = mock_exec.call_args
-        assert kwargs.get("debian_chroot") == "(lxc)"
+        assert kwargs.get("debian_chroot") == "lxc"
 
     def test_debian_chroot_set_for_debian(self) -> None:
         target = TargetInfo(distro="debian", release="bookworm", arch="amd64", host_distro="ubuntu")
         mock_exec = self._run_interactive(target)
         _, kwargs = mock_exec.call_args
-        assert kwargs.get("debian_chroot") == "(lxc)"
+        assert kwargs.get("debian_chroot") == "lxc"
 
     def test_debian_chroot_not_set_for_non_debian(self) -> None:
         target = TargetInfo(distro="fedora", release="40", arch="amd64", host_distro="ubuntu")
@@ -364,7 +364,7 @@ class TestMainDebianChroot:
             runner.invoke(main, ["--root"])
 
         _, kwargs = mock_exec.call_args
-        assert kwargs.get("debian_chroot") == "(lxc)"
+        assert kwargs.get("debian_chroot") == "lxc"
 
 
 class TestMainMounts:

@@ -129,20 +129,20 @@ class TestExecInteractive:
     def test_debian_chroot_set_as_user(self) -> None:
         user = _make_user()
         with patch("os.execvp") as mock_exec:
-            exec_interactive("mybox", user, ["bash", "--login"], 1000, 1000, as_root=False, debian_chroot="(lxc)")
+            exec_interactive("mybox", user, ["bash", "--login"], 1000, 1000, as_root=False, debian_chroot="lxc")
 
         argv = mock_exec.call_args[0][1]
         assert "--env" in argv
-        idx = argv.index("debian_chroot=(lxc)")
+        idx = argv.index("debian_chroot=lxc")
         assert argv[idx - 1] == "--env"
 
     def test_debian_chroot_set_as_root(self) -> None:
         user = _make_user()
         with patch("os.execvp") as mock_exec:
-            exec_interactive("mybox", user, ["bash", "--login"], 1000, 1000, as_root=True, debian_chroot="(lxc)")
+            exec_interactive("mybox", user, ["bash", "--login"], 1000, 1000, as_root=True, debian_chroot="lxc")
 
         argv = mock_exec.call_args[0][1]
-        assert "debian_chroot=(lxc)" in argv
+        assert "debian_chroot=lxc" in argv
 
     def test_debian_chroot_not_set_when_none(self) -> None:
         user = _make_user()
