@@ -17,6 +17,7 @@ from lxcme.users import (
     ensure_group,
     ensure_user,
     get_instance_user_ids,
+    get_tracked_mounts,
     is_setup_done,
     mark_setup_done,
     setup_home_directory,
@@ -179,7 +180,26 @@ class TestSyncMounts:
         assert instance.devices["host_foo"]["path"] == "/new/path"
 
 
-class TestSetupHomeDirectory:
+class TestGetTrackedMounts:
+    def test_returns_tracked_mounts(self) -> None:
+        instance = MagicMock()
+        instance.config = {
+            MOUNT_KEY_PREFIX + "home_alice": "/home/alice:/home/alice",
+            MOUNT_KEY_PREFIX + "host_data": "/host/data:/mnt/data",
+        }
+
+        mounts = get_tracked_mounts(instance)
+
+        assert ("/home/alice", "/home/alice") in mounts
+        assert ("/host/data", "/mnt/data") in mounts
+        assert len(mounts) == 2
+
+    def test_returns_empty_when_no_mounts_tracked(self) -> None:
+        instance = MagicMock()
+        instance.config = {}
+
+        assert get_tracked_mounts(instance) == []
+
     def test_creates_and_chowns(self) -> None:
         instance = MagicMock()
         instance.execute.return_value = _make_exec_result(exit_code=0)
