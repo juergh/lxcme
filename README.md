@@ -40,6 +40,7 @@ lxcme [options] [instance_name] [[--] command [args...]]
 | `--root` | Run command as root inside the instance |
 | `--mount HOST_PATH[:INSTANCE_PATH]` | Mount HOST_PATH inside the instance at INSTANCE_PATH (defaults to HOST_PATH). Repeatable. |
 | `--keep-mounts` | Skip mount reconciliation and keep the instance's current mounts as-is. |
+| `--env KEY=VALUE` | Set an environment variable inside the instance. Repeatable. |
 | `-v / --verbose` | Enable debug logging |
 
 ### Examples
@@ -68,6 +69,9 @@ lxcme --mount /home/alice --mount /data:/mnt/data
 
 # Use a specific distro/release
 lxcme --distro debian --release bookworm
+
+# Pass environment variables into the instance
+lxcme --env FOO=bar --env BAZ=qux -- printenv FOO
 ```
 
 ## How it works
