@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 import os
 import sys
+from dataclasses import dataclass
+from typing import Literal
 
 import click
 import pylxd
@@ -31,6 +33,15 @@ from lxcme.users import (
 logger = logging.getLogger(__name__)
 
 
+@dataclass(frozen=True)
+class MountOp:
+    """A single mount operation parsed from a --mount argument."""
+
+    kind: Literal["add", "del", "del_all"]
+    host_path: str
+    instance_path: str
+
+
 def _configure_logging(verbose: bool) -> None:
     """Configure logging level (DEBUG if verbose, otherwise INFO)."""
     level = logging.DEBUG if verbose else logging.INFO
@@ -42,14 +53,57 @@ def _resolve_command(command: tuple[str, ...]) -> list[str]:
     return list(command) if command else ["bash", "--login"]
 
 
-def _parse_mount(value: str) -> tuple[str, str]:
-    """Parse a --mount value into (host_path, instance_path).
+def _parse_mount_ops(value: str) -> list[MountOp]:
+    """Parse a --mount value into one or more MountOp entries.
 
-    Format: <host-path>[:<instance-path>]. If instance-path is omitted, host-path is used.
+    Supported forms:
+      /host[:/inst]          -> del_all + add /host /inst
+      add:/host[:/inst]      -> add /host /inst
+      del:                   -> del_all
+      del:/host              -> del /host
     """
+    if value.startswith("add:"):
+        tail = value[4:]
+        host_path, sep, instance_path = tail.partition(":")
+        host_path = os.path.realpath(host_path)
+        return [MountOp("add", host_path, instance_path if sep else host_path)]
+
+    if value.startswith("del:"):
+        tail = value[4:]
+        if not tail:
+            return [MountOp("del_all", "", "")]
+        host_path = os.path.realpath(tail)
+        return [MountOp("del", host_path, "")]
+
+    # Plain path: sugar for del_all + add
     host_path, sep, instance_path = value.partition(":")
     host_path = os.path.realpath(host_path)
-    return host_path, instance_path if sep else host_path
+    return [
+        MountOp("del_all", "", ""),
+        MountOp("add", host_path, instance_path if sep else host_path),
+    ]
+
+
+def _resolve_mounts(
+    ops: list[MountOp],
+    current: list[tuple[str, str]],
+) -> list[tuple[str, str]]:
+    """Apply mount ops left-to-right against current tracked mounts, returning the result."""
+    working: list[tuple[str, str]] = list(current)
+
+    for op in ops:
+        if op.kind == "del_all":
+            working.clear()
+        elif op.kind == "del":
+            before = len(working)
+            working = [(h, i) for h, i in working if h != op.host_path]
+            if len(working) == before:
+                logger.warning("del: mount not found: %s", op.host_path)
+        else:  # add
+            if not any(h == op.host_path for h, _ in working):
+                working.append((op.host_path, op.instance_path))
+
+    return working
 
 
 def _parse_env(value: str) -> tuple[str, str]:
@@ -71,15 +125,12 @@ def _parse_env(value: str) -> tuple[str, str]:
     "--mount",
     "mounts",
     multiple=True,
-    metavar="HOST_PATH[:INSTANCE_PATH]",
-    help="Mount HOST_PATH inside the instance at INSTANCE_PATH (defaults to HOST_PATH). Repeatable.",
-)
-@click.option(
-    "--keep-mounts",
-    "keep_mounts",
-    is_flag=True,
-    default=False,
-    help="Skip mount reconciliation and keep the instance's current mounts as-is.",
+    metavar="MOUNT_SPEC",
+    help=(
+        "Modify instance mounts. Repeatable, applied left-to-right. "
+        "Forms: /host[:/inst] (replace all), add:/host[:/inst] (append), "
+        "del:/host (remove one), del: (remove all)."
+    ),
 )
 @click.option(
     "--env",
@@ -98,7 +149,6 @@ def _parse_env(value: str) -> tuple[str, str]:
 def main(
     root: bool,
     mounts: tuple[str, ...],
-    keep_mounts: bool,
     env_vars: tuple[str, ...],
     distro: str | None,
     release: str | None,
@@ -108,7 +158,26 @@ def main(
     instance_name: str | None,
     command: tuple[str, ...],
 ) -> None:
-    """Manage and enter LXC instances with seamless user and home directory integration."""
+    """Manage and enter LXC instances with seamless user and home directory integration.
+
+    \b
+    Examples:
+      lxcme                                     Enter default instance (interactive shell)
+      lxcme my-box                              Enter a named instance
+      lxcme -- ls -la                           Run a non-interactive command
+      lxcme --root -- apt update                Run as root
+      lxcme --distro ubuntu --release resolute  Use a specific distro/release
+
+    \b
+    Mounts (applied left-to-right)
+      lxmce                                     Keep exisiting mounts
+      lxcme --mount /data                       Replace all mounts with /data (same as: --mount del: --mount add:/data)
+      lxcme --mount /host/src:/work             Replace all mounts, custom instance path
+      lxcme --mount add:/data                   Append /data to existing mounts
+      lxcme --mount del:/data                   Remove /data from existing mounts
+      lxcme --mount del:                        Remove all mounts
+      lxcme --mount del:/old --mount add:/new   Remove /old, add /new
+    """
     _configure_logging(verbose)
 
     # Strip leading '--' separator if present
@@ -121,7 +190,7 @@ def main(
     user = get_current_user()
     name = instance_name or target.instance_alias
     resolved_command = _resolve_command(tuple(cmd_list))
-    parsed_mounts = [_parse_mount(m) for m in mounts]
+    mount_ops = [op for m in mounts for op in _parse_mount_ops(m)]
     parsed_env = dict(_parse_env(e) for e in env_vars)
 
     client = pylxd.Client()
@@ -130,9 +199,9 @@ def main(
     is_new = instance is None
 
     if is_new:
-        mount_summary = (
-            ", ".join(f"{host_path}:{instance_path}" for host_path, instance_path in parsed_mounts) or "(none)"
-        )
+        # For new instances derive initial mount list from ops (starting from empty)
+        initial_mounts = _resolve_mounts(mount_ops, [])
+        mount_summary = ", ".join(f"{h}:{i}" for h, i in initial_mounts) or "(none)"
         click.echo(
             f"Instance '{name}' does not exist.\n"
             f"  Image  : {target.image_alias}\n"
@@ -155,13 +224,15 @@ def main(
 
     ensure_running(instance)
 
-    # On existing instances, prompt if mounts differ from what was last applied
-    if not keep_mounts:
+    # Reconcile mounts only when --mount args were supplied
+    if mount_ops:
         instance.sync()
-        if not is_new and parsed_mounts != get_tracked_mounts(instance):
-            current = get_tracked_mounts(instance)
+        current = get_tracked_mounts(instance)
+        desired = _resolve_mounts(mount_ops, current)
+
+        if not is_new and desired != current:
             current_str = ", ".join(f"{h}:{i}" for h, i in current) or "(none)"
-            desired_str = ", ".join(f"{h}:{i}" for h, i in parsed_mounts) or "(none)"
+            desired_str = ", ".join(f"{h}:{i}" for h, i in desired) or "(none)"
             click.echo(
                 f"Mounts will change for instance '{name}':\n  Current : {current_str}\n  New     : {desired_str}"
             )
@@ -169,8 +240,7 @@ def main(
                 click.echo("Aborted.")
                 sys.exit(0)
 
-        # Reconcile mounts; restart instance if anything changed
-        if sync_mounts(instance, parsed_mounts):
+        if sync_mounts(instance, desired):
             instance.stop(wait=True)
             instance.sync()
             instance.start(wait=True)

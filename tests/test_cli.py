@@ -5,9 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
 from click.testing import CliRunner
 
-from lxcme.cli import main
+from lxcme.cli import MountOp, _parse_mount_ops, _resolve_mounts, main
 from lxcme.host import HostInfo, TargetInfo
 from lxcme.users import User
 
@@ -37,6 +38,103 @@ def _make_instance(name: str = "noble-amd64", running: bool = True, setup_done: 
     inst.config = {"user.lxcme.setup-done": "true"} if setup_done else {}
     inst.devices = {}
     return inst
+
+
+class TestParseMountOps:
+    def test_plain_path_emits_del_all_and_add(self) -> None:
+        ops = _parse_mount_ops("/foo")
+        assert ops[0] == MountOp("del_all", "", "")
+        assert ops[1].kind == "add"
+        assert ops[1].instance_path == ops[1].host_path
+
+    def test_plain_path_with_instance_path(self) -> None:
+        ops = _parse_mount_ops("/foo:/bar")
+        assert ops[0] == MountOp("del_all", "", "")
+        assert ops[1].kind == "add"
+        assert ops[1].instance_path == "/bar"
+
+    def test_add_prefix(self) -> None:
+        ops = _parse_mount_ops("add:/foo")
+        assert len(ops) == 1
+        assert ops[0].kind == "add"
+        assert ops[0].instance_path == ops[0].host_path
+
+    def test_add_prefix_with_instance_path(self) -> None:
+        ops = _parse_mount_ops("add:/foo:/bar")
+        assert len(ops) == 1
+        assert ops[0].kind == "add"
+        assert ops[0].instance_path == "/bar"
+
+    def test_del_all(self) -> None:
+        ops = _parse_mount_ops("del:")
+        assert ops == [MountOp("del_all", "", "")]
+
+    def test_del_specific_path(self) -> None:
+        ops = _parse_mount_ops("del:/foo")
+        assert len(ops) == 1
+        assert ops[0].kind == "del"
+        assert ops[0].instance_path == ""
+
+
+class TestResolveMounts:
+    def test_empty_ops_returns_current(self) -> None:
+        current = [("/foo", "/foo")]
+        assert _resolve_mounts([], current) == current
+
+    def test_del_all_clears(self) -> None:
+        current = [("/foo", "/foo"), ("/bar", "/bar")]
+        ops = [MountOp("del_all", "", "")]
+        assert _resolve_mounts(ops, current) == []
+
+    def test_del_specific_removes_entry(self) -> None:
+        current = [("/foo", "/foo"), ("/bar", "/bar")]
+        ops = [MountOp("del", "/foo", "")]
+        assert _resolve_mounts(ops, current) == [("/bar", "/bar")]
+
+    def test_del_missing_warns_and_continues(self, caplog: pytest.LogCaptureFixture) -> None:
+        import logging
+
+        current = [("/bar", "/bar")]
+        ops = [MountOp("del", "/foo", "")]
+        with caplog.at_level(logging.WARNING):
+            result = _resolve_mounts(ops, current)
+        assert result == [("/bar", "/bar")]
+        assert any("/foo" in m for m in caplog.messages)
+
+    def test_add_appends_new_entry(self) -> None:
+        current = [("/foo", "/foo")]
+        ops = [MountOp("add", "/bar", "/bar")]
+        assert _resolve_mounts(ops, current) == [("/foo", "/foo"), ("/bar", "/bar")]
+
+    def test_add_skips_duplicate(self) -> None:
+        current = [("/foo", "/foo")]
+        ops = [MountOp("add", "/foo", "/foo")]
+        assert _resolve_mounts(ops, current) == [("/foo", "/foo")]
+
+    def test_plain_mount_replaces_all(self) -> None:
+        current = [("/old", "/old")]
+        ops = [MountOp("del_all", "", ""), MountOp("add", "/new", "/new")]
+        assert _resolve_mounts(ops, current) == [("/new", "/new")]
+
+    def test_del_all_then_add_left_to_right(self) -> None:
+        current = [("/foo", "/foo")]
+        ops = [MountOp("del_all", "", ""), MountOp("add", "/bar", "/bar")]
+        assert _resolve_mounts(ops, current) == [("/bar", "/bar")]
+
+    def test_del_then_add_same_path_results_in_present(self) -> None:
+        current = [("/foo", "/foo")]
+        ops = [MountOp("del", "/foo", ""), MountOp("add", "/foo", "/foo")]
+        assert _resolve_mounts(ops, current) == [("/foo", "/foo")]
+
+    def test_add_then_del_same_path_results_in_absent(self) -> None:
+        current = []
+        ops = [MountOp("add", "/foo", "/foo"), MountOp("del", "/foo", "")]
+        assert _resolve_mounts(ops, current) == []
+
+    def test_mixed_del_and_add(self) -> None:
+        current = [("/foo", "/foo"), ("/bar", "/bar")]
+        ops = [MountOp("del", "/foo", ""), MountOp("add", "/baz", "/baz")]
+        assert _resolve_mounts(ops, current) == [("/bar", "/bar"), ("/baz", "/baz")]
 
 
 class TestMainExistingInstance:
@@ -135,7 +233,6 @@ class TestMainExistingInstance:
             runner.invoke(main, [])
 
         args = mock_exec.call_args[0]
-        # instance_uid and instance_gid should be 500/501, not user's 9999/9999
         assert 500 in args
         assert 501 in args
 
@@ -450,7 +547,6 @@ class TestMainEnvVars:
         _, kwargs = mock_exec.call_args
         env = kwargs.get("extra_env", {})
         assert "FOO" not in env
-        # debian_chroot is implicitly added for ubuntu targets
         assert "debian_chroot" in env
 
     def test_env_var_with_equals_in_value(self) -> None:
@@ -465,7 +561,12 @@ class TestMainEnvVars:
 
 
 class TestMainMounts:
-    def _run_with_mounts(self, args: list[str], sync_return: bool = False) -> MagicMock:
+    def _run_with_mounts(
+        self,
+        args: list[str],
+        current_mounts: list[tuple[str, str]] | None = None,
+        sync_return: bool = False,
+    ) -> MagicMock:
         runner = CliRunner()
         user = _make_user()
         instance = _make_instance()
@@ -478,37 +579,86 @@ class TestMainMounts:
             patch("lxcme.cli.find_instance", return_value=instance),
             patch("lxcme.cli.is_setup_done", return_value=True),
             patch("lxcme.cli.ensure_running"),
-            patch("lxcme.cli.get_tracked_mounts", return_value=[]),
+            patch("lxcme.cli.get_tracked_mounts", return_value=current_mounts or []),
             patch("lxcme.cli.sync_mounts", return_value=sync_return) as mock_sync,
             patch("lxcme.cli.get_instance_user_ids", return_value=_INSTANCE_IDS),
             patch("lxcme.cli.is_interactive", return_value=True),
             patch("lxcme.cli.exec_interactive"),
         ):
-            runner.invoke(main, args, input="y\n" if args else None)
+            runner.invoke(main, args, input="y\n")
 
         return mock_sync
+
+    def test_plain_mount_replaces_all_existing(self) -> None:
+        mock_sync = self._run_with_mounts(
+            ["--mount", "/foo"],
+            current_mounts=[("/old", "/old")],
+        )
+        _, args, _ = mock_sync.mock_calls[0]
+        assert args[1] == [("/foo", "/foo")]
 
     def test_mount_with_explicit_instance_path(self) -> None:
         mock_sync = self._run_with_mounts(["--mount", "/host/data:/inst/data"])
         _, args, _ = mock_sync.mock_calls[0]
         assert ("/host/data", "/inst/data") in args[1]
 
-    def test_mount_defaults_instance_path_to_host_path(self) -> None:
-        mock_sync = self._run_with_mounts(["--mount", "/home/alice"])
-        _, args, _ = mock_sync.mock_calls[0]
-        assert ("/home/alice", "/home/alice") in args[1]
-
-    def test_multiple_mounts(self) -> None:
-        mock_sync = self._run_with_mounts(["--mount", "/foo:/bar", "--mount", "/baz"])
+    def test_add_prefix_appends_to_existing(self) -> None:
+        mock_sync = self._run_with_mounts(
+            ["--mount", "add:/bar"],
+            current_mounts=[("/foo", "/foo")],
+        )
         _, args, _ = mock_sync.mock_calls[0]
         mounts = args[1]
-        assert ("/foo", "/bar") in mounts
-        assert ("/baz", "/baz") in mounts
+        assert ("/foo", "/foo") in mounts
+        assert ("/bar", "/bar") in mounts
 
-    def test_no_mounts_passes_empty_list(self) -> None:
-        mock_sync = self._run_with_mounts([])
+    def test_del_all_removes_all_mounts(self) -> None:
+        mock_sync = self._run_with_mounts(
+            ["--mount", "del:"],
+            current_mounts=[("/foo", "/foo"), ("/bar", "/bar")],
+        )
         _, args, _ = mock_sync.mock_calls[0]
         assert args[1] == []
+
+    def test_del_specific_removes_one_mount(self) -> None:
+        mock_sync = self._run_with_mounts(
+            ["--mount", "del:/foo"],
+            current_mounts=[("/foo", "/foo"), ("/bar", "/bar")],
+        )
+        _, args, _ = mock_sync.mock_calls[0]
+        assert args[1] == [("/bar", "/bar")]
+
+    def test_del_all_then_add_via_mixed(self) -> None:
+        mock_sync = self._run_with_mounts(
+            ["--mount", "del:", "--mount", "add:/baz"],
+            current_mounts=[("/foo", "/foo")],
+        )
+        _, args, _ = mock_sync.mock_calls[0]
+        assert args[1] == [("/baz", "/baz")]
+
+    def test_no_mounts_skips_sync(self) -> None:
+        runner = CliRunner()
+        user = _make_user()
+        instance = _make_instance()
+
+        with (
+            patch("lxcme.cli.get_host_info", return_value=_HOST_UBUNTU),
+            patch("lxcme.cli.get_target_info", return_value=_TARGET_UBUNTU),
+            patch("lxcme.cli.get_current_user", return_value=user),
+            patch("lxcme.cli.pylxd.Client"),
+            patch("lxcme.cli.find_instance", return_value=instance),
+            patch("lxcme.cli.is_setup_done", return_value=True),
+            patch("lxcme.cli.ensure_running"),
+            patch("lxcme.cli.get_tracked_mounts") as mock_tracked,
+            patch("lxcme.cli.sync_mounts") as mock_sync,
+            patch("lxcme.cli.get_instance_user_ids", return_value=_INSTANCE_IDS),
+            patch("lxcme.cli.is_interactive", return_value=True),
+            patch("lxcme.cli.exec_interactive"),
+        ):
+            runner.invoke(main, [])
+
+        mock_tracked.assert_not_called()
+        mock_sync.assert_not_called()
 
     def test_instance_restarted_when_mounts_change(self) -> None:
         runner = CliRunner()
@@ -534,10 +684,6 @@ class TestMainMounts:
         instance.stop.assert_called_once_with(wait=True)
         instance.start.assert_called_once_with(wait=True)
 
-    def test_instance_not_restarted_when_mounts_unchanged(self) -> None:
-        self._run_with_mounts(["--mount", "/foo"], sync_return=False)
-        # No restart expected; covered by absence of stop/start calls in sync_return=False path
-
     def test_mount_change_prompts_user(self) -> None:
         runner = CliRunner()
         user = _make_user()
@@ -560,8 +706,6 @@ class TestMainMounts:
             result = runner.invoke(main, ["--mount", "/foo"], input="y\n")
 
         assert "Mounts will change" in result.output
-        assert "/old:/old" in result.output
-        assert "/foo:/foo" in result.output
 
     def test_mount_change_aborts_on_no(self) -> None:
         runner = CliRunner()
@@ -586,54 +730,6 @@ class TestMainMounts:
 
         assert "Aborted" in result.output
         mock_sync.assert_not_called()
-
-
-class TestMainKeepMounts:
-    def test_keep_mounts_skips_sync(self) -> None:
-        runner = CliRunner()
-        user = _make_user()
-        instance = _make_instance()
-
-        with (
-            patch("lxcme.cli.get_host_info", return_value=_HOST_UBUNTU),
-            patch("lxcme.cli.get_target_info", return_value=_TARGET_UBUNTU),
-            patch("lxcme.cli.get_current_user", return_value=user),
-            patch("lxcme.cli.pylxd.Client"),
-            patch("lxcme.cli.find_instance", return_value=instance),
-            patch("lxcme.cli.is_setup_done", return_value=True),
-            patch("lxcme.cli.ensure_running"),
-            patch("lxcme.cli.get_tracked_mounts") as mock_tracked,
-            patch("lxcme.cli.sync_mounts") as mock_sync,
-            patch("lxcme.cli.get_instance_user_ids", return_value=_INSTANCE_IDS),
-            patch("lxcme.cli.is_interactive", return_value=True),
-            patch("lxcme.cli.exec_interactive"),
-        ):
-            runner.invoke(main, ["--keep-mounts"])
-
-        mock_tracked.assert_not_called()
-        mock_sync.assert_not_called()
-
-    def test_keep_mounts_suppresses_prompt(self) -> None:
-        runner = CliRunner()
-        user = _make_user()
-        instance = _make_instance()
-
-        with (
-            patch("lxcme.cli.get_host_info", return_value=_HOST_UBUNTU),
-            patch("lxcme.cli.get_target_info", return_value=_TARGET_UBUNTU),
-            patch("lxcme.cli.get_current_user", return_value=user),
-            patch("lxcme.cli.pylxd.Client"),
-            patch("lxcme.cli.find_instance", return_value=instance),
-            patch("lxcme.cli.is_setup_done", return_value=True),
-            patch("lxcme.cli.ensure_running"),
-            patch("lxcme.cli.sync_mounts"),
-            patch("lxcme.cli.get_instance_user_ids", return_value=_INSTANCE_IDS),
-            patch("lxcme.cli.is_interactive", return_value=True),
-            patch("lxcme.cli.exec_interactive"),
-        ):
-            result = runner.invoke(main, ["--keep-mounts", "--mount", "/foo"])
-
-        assert "Mounts will change" not in result.output
 
 
 class TestMainCwd:

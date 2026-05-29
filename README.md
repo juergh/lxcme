@@ -38,8 +38,7 @@ lxcme [options] [instance_name] [[--] command [args...]]
 | `--release RELEASE` | Override host release name |
 | `--arch ARCH` | Override host architecture |
 | `--root` | Run command as root inside the instance |
-| `--mount HOST_PATH[:INSTANCE_PATH]` | Mount HOST_PATH inside the instance at INSTANCE_PATH (defaults to HOST_PATH). Repeatable. |
-| `--keep-mounts` | Skip mount reconciliation and keep the instance's current mounts as-is. |
+| `--mount MOUNT_SPEC` | Modify instance mounts. Repeatable, applied left-to-right. See [Mounts](#mounts) for all forms. |
 | `--env KEY=VALUE` | Set an environment variable inside the instance. Repeatable. |
 | `--cwd PATH` | Set the working directory inside the instance (default: user home dir; `/` when `--root` is used without `--cwd`). |
 | `-v / --verbose` | Enable debug logging |
@@ -59,14 +58,29 @@ lxcme my-box -- python3 script.py
 # Run as root
 lxcme --root -- apt update
 
-# Mount host home directory into the instance
+# Replace all mounts with /home/alice (plain path = replace)
 lxcme --mount /home/alice
 
 # Mount a project directory at a custom path inside the instance
 lxcme --mount /host/projects:/work
 
-# Mount multiple directories
+# Replace all mounts with two directories
 lxcme --mount /home/alice --mount /data:/mnt/data
+
+# Add /data to existing mounts without touching the rest
+lxcme --mount add:/data
+
+# Remove a specific mount
+lxcme --mount del:/data
+
+# Remove all mounts
+lxcme --mount del:
+
+# Clear all mounts then add /foo (equivalent to: lxcme --mount /foo)
+lxcme --mount del: --mount add:/foo
+
+# Mix: remove /old, add /new
+lxcme --mount del:/old --mount add:/new
 
 # Use a specific distro/release
 lxcme --distro debian --release bookworm
@@ -113,19 +127,36 @@ Setup runs exactly once and is idempotent — tracked via the `user.lxcme.setup-
 
 ### Mounts
 
-Directory mounts are managed via `--mount HOST_PATH[:INSTANCE_PATH]`. If `INSTANCE_PATH` is omitted, `HOST_PATH` is used as the path inside the instance.
+Directory mounts are managed via `--mount MOUNT_SPEC`. The `--mount` option is repeatable and operations are applied **left-to-right** against the current tracked mounts. If no `--mount` args are given, existing mounts are left unchanged.
 
-Mounts are tracked in the instance config under `user.lxcme.mount.<device>` keys. On each invocation the desired set of mounts is reconciled against the tracked set:
+**Supported forms:**
 
-- New mounts are attached as LXD disk devices.
-- Mounts no longer specified are removed.
-- If any change is made, you will be prompted to confirm before the instance is restarted to apply the new device config.
+| Form | Meaning |
+|---|---|
+| `/host[:/inst]` | Replace: clear all existing mounts, then add this one |
+| `add:/host[:/inst]` | Append this mount if not already present |
+| `del:/host` | Remove the mount with this host path (warns if not found) |
+| `del:` | Remove all mounts |
 
-To mount your home directory:
+If `inst` is omitted, `host` is used as the path inside the instance. Multiple `--mount` arguments can be combined freely:
 
 ```bash
-lxcme --mount /home/alice
+# Replace all mounts with /foo
+lxcme --mount /foo
+
+# Add /bar to existing mounts without disturbing anything else
+lxcme --mount add:/bar
+
+# Remove /old, add /new
+lxcme --mount del:/old --mount add:/new
+
+# Clear everything then add /foo (same as: lxcme --mount /foo)
+lxcme --mount del: --mount add:/foo
 ```
+
+Operations apply left-to-right, so `--mount del:/foo --mount add:/foo` results in `/foo` being present (del then re-add), while `--mount add:/foo --mount del:/foo` results in `/foo` being absent.
+
+When the resolved mount set differs from the current tracked mounts, you are prompted to confirm before the instance is restarted to apply the new device config.
 
 ### Command execution
 
