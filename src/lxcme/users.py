@@ -179,6 +179,7 @@ def sync_mounts(instance: pylxd.models.Instance, mounts: list[tuple[str, str]]) 
         logger.info("Attached '%s' -> '%s' as device '%s'.", host_path, instance_path, device)
 
     instance.save(wait=True)
+    instance.sync()
     return True
 
 

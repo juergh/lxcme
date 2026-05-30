@@ -230,20 +230,7 @@ def main(
         current = get_tracked_mounts(instance)
         desired = _resolve_mounts(mount_ops, current)
 
-        if not is_new and desired != current:
-            current_str = ", ".join(f"{h}:{i}" for h, i in current) or "(none)"
-            desired_str = ", ".join(f"{h}:{i}" for h, i in desired) or "(none)"
-            click.echo(
-                f"Mounts will change for instance '{name}':\n  Current : {current_str}\n  New     : {desired_str}"
-            )
-            if not click.confirm("Apply new mounts? (instance will restart)", default=False):
-                click.echo("Aborted.")
-                sys.exit(0)
-
-        if sync_mounts(instance, desired):
-            instance.stop(wait=True)
-            instance.sync()
-            instance.start(wait=True)
+        sync_mounts(instance, desired)
 
     # Resolve uid/gid as they exist inside the instance (stored at first-launch)
     instance_uid, instance_gid = get_instance_user_ids(instance)
