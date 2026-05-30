@@ -235,8 +235,10 @@ def mark_setup_done(instance: pylxd.models.Instance, instance_uid: int, instance
 
 
 def get_instance_user_ids(instance: pylxd.models.Instance) -> tuple[int, int]:
-    """Retrieve stored instance uid/gid from instance config."""
-    instance.sync()
+    """Retrieve stored instance uid/gid from instance config.
+
+    Callers must ensure the instance is synced before calling this function.
+    """
     uid = int(instance.config[INSTANCE_UID_KEY])
     gid = int(instance.config[INSTANCE_GID_KEY])
     return uid, gid
