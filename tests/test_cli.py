@@ -660,7 +660,8 @@ class TestMainMounts:
         mock_tracked.assert_not_called()
         mock_sync.assert_not_called()
 
-    def test_instance_restarted_when_mounts_change(self) -> None:
+    def test_instance_not_restarted_when_mounts_change(self) -> None:
+        """LXC disk devices can be hot-added; no restart is required."""
         runner = CliRunner()
         user = _make_user()
         instance = _make_instance()
@@ -679,57 +680,10 @@ class TestMainMounts:
             patch("lxcme.cli.is_interactive", return_value=True),
             patch("lxcme.cli.exec_interactive"),
         ):
-            runner.invoke(main, ["--mount", "/foo"], input="y\n")
+            runner.invoke(main, ["--mount", "/foo"])
 
-        instance.stop.assert_called_once_with(wait=True)
-        instance.start.assert_called_once_with(wait=True)
-
-    def test_mount_change_prompts_user(self) -> None:
-        runner = CliRunner()
-        user = _make_user()
-        instance = _make_instance()
-
-        with (
-            patch("lxcme.cli.get_host_info", return_value=_HOST_UBUNTU),
-            patch("lxcme.cli.get_target_info", return_value=_TARGET_UBUNTU),
-            patch("lxcme.cli.get_current_user", return_value=user),
-            patch("lxcme.cli.pylxd.Client"),
-            patch("lxcme.cli.find_instance", return_value=instance),
-            patch("lxcme.cli.is_setup_done", return_value=True),
-            patch("lxcme.cli.ensure_running"),
-            patch("lxcme.cli.get_tracked_mounts", return_value=[("/old", "/old")]),
-            patch("lxcme.cli.sync_mounts", return_value=True),
-            patch("lxcme.cli.get_instance_user_ids", return_value=_INSTANCE_IDS),
-            patch("lxcme.cli.is_interactive", return_value=True),
-            patch("lxcme.cli.exec_interactive"),
-        ):
-            result = runner.invoke(main, ["--mount", "/foo"], input="y\n")
-
-        assert "Mounts will change" in result.output
-
-    def test_mount_change_aborts_on_no(self) -> None:
-        runner = CliRunner()
-        user = _make_user()
-        instance = _make_instance()
-
-        with (
-            patch("lxcme.cli.get_host_info", return_value=_HOST_UBUNTU),
-            patch("lxcme.cli.get_target_info", return_value=_TARGET_UBUNTU),
-            patch("lxcme.cli.get_current_user", return_value=user),
-            patch("lxcme.cli.pylxd.Client"),
-            patch("lxcme.cli.find_instance", return_value=instance),
-            patch("lxcme.cli.is_setup_done", return_value=True),
-            patch("lxcme.cli.ensure_running"),
-            patch("lxcme.cli.get_tracked_mounts", return_value=[("/old", "/old")]),
-            patch("lxcme.cli.sync_mounts", return_value=False) as mock_sync,
-            patch("lxcme.cli.get_instance_user_ids", return_value=_INSTANCE_IDS),
-            patch("lxcme.cli.is_interactive", return_value=True),
-            patch("lxcme.cli.exec_interactive"),
-        ):
-            result = runner.invoke(main, ["--mount", "/foo"], input="n\n")
-
-        assert "Aborted" in result.output
-        mock_sync.assert_not_called()
+        instance.stop.assert_not_called()
+        instance.start.assert_not_called()
 
 
 class TestMainCwd:

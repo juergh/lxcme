@@ -136,6 +136,7 @@ class TestSyncMounts:
         assert instance.devices["host_foo"]["path"] == "/inst/foo"
         assert instance.config[MOUNT_KEY_PREFIX + "host_foo"] == "/host/foo:/inst/foo"
         instance.save.assert_called_once_with(wait=True)
+        instance.sync.assert_called_once()
 
     def test_removes_stale_mounts(self) -> None:
         instance = MagicMock()
@@ -147,6 +148,7 @@ class TestSyncMounts:
         assert changed is True
         assert "host_old" not in instance.devices
         assert MOUNT_KEY_PREFIX + "host_old" not in instance.config
+        instance.sync.assert_called_once()
 
     def test_no_change_returns_false(self) -> None:
         instance = MagicMock()
@@ -157,6 +159,7 @@ class TestSyncMounts:
 
         assert changed is False
         instance.save.assert_not_called()
+        instance.sync.assert_not_called()
 
     def test_default_instance_path_equals_host_path(self) -> None:
         instance = MagicMock()
@@ -178,6 +181,7 @@ class TestSyncMounts:
 
         assert changed is True
         assert instance.devices["host_foo"]["path"] == "/new/path"
+        instance.sync.assert_called_once()
 
 
 class TestGetTrackedMounts:
