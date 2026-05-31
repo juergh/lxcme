@@ -232,7 +232,7 @@ class TestExecNoninteractive:
         instance.execute.return_value = result
 
         user = _make_user()
-        code, out, err = exec_noninteractive(instance, ["echo", "hello"], user, 1000, 1000, as_root=False)
+        code, out, err = exec_noninteractive(instance, user, ["echo", "hello"], 1000, 1000, as_root=False)
 
         assert code == 0
         assert out == "hello\n"
@@ -250,7 +250,7 @@ class TestExecNoninteractive:
         instance.execute.return_value = result
 
         user = _make_user(uid=9999, gid=9999)
-        exec_noninteractive(instance, ["id"], user, 1000, 1000, as_root=False)
+        exec_noninteractive(instance, user, ["id"], 1000, 1000, as_root=False)
 
         call_kwargs = instance.execute.call_args[1]
         assert call_kwargs["user"] == 1000
@@ -265,7 +265,7 @@ class TestExecNoninteractive:
         instance.execute.return_value = result
 
         user = _make_user()
-        exec_noninteractive(instance, ["id"], user, 1000, 1000, as_root=True)
+        exec_noninteractive(instance, user, ["id"], 1000, 1000, as_root=True)
 
         call_kwargs = instance.execute.call_args[1]
         assert call_kwargs["user"] == 0
@@ -277,7 +277,7 @@ class TestExecNoninteractive:
         instance.execute.return_value = result
 
         user = _make_user()
-        exec_noninteractive(instance, ["pwd"], user, 1000, 1000, as_root=False)
+        exec_noninteractive(instance, user, ["pwd"], 1000, 1000, as_root=False)
 
         assert instance.execute.call_args[1]["cwd"] == str(user.home)
 
@@ -287,7 +287,7 @@ class TestExecNoninteractive:
         instance.execute.return_value = result
 
         user = _make_user()
-        exec_noninteractive(instance, ["pwd"], user, 1000, 1000, as_root=True)
+        exec_noninteractive(instance, user, ["pwd"], 1000, 1000, as_root=True)
 
         assert instance.execute.call_args[1]["cwd"] == "/"
 
@@ -297,7 +297,7 @@ class TestExecNoninteractive:
         instance.execute.return_value = result
 
         user = _make_user()
-        exec_noninteractive(instance, ["pwd"], user, 1000, 1000, as_root=False, cwd="/custom/path")
+        exec_noninteractive(instance, user, ["pwd"], 1000, 1000, as_root=False, cwd="/custom/path")
 
         assert instance.execute.call_args[1]["cwd"] == "/custom/path"
 
@@ -307,7 +307,7 @@ class TestExecNoninteractive:
         instance.execute.return_value = result
 
         user = _make_user()
-        exec_noninteractive(instance, ["pwd"], user, 1000, 1000, as_root=True, cwd="/custom/path")
+        exec_noninteractive(instance, user, ["pwd"], 1000, 1000, as_root=True, cwd="/custom/path")
 
         assert instance.execute.call_args[1]["cwd"] == "/custom/path"
 
@@ -320,7 +320,7 @@ class TestExecNoninteractive:
         instance.execute.return_value = result
 
         user = _make_user()
-        exec_noninteractive(instance, ["env"], user, 1000, 1000, as_root=False, extra_env={"FOO": "bar"})
+        exec_noninteractive(instance, user, ["env"], 1000, 1000, as_root=False, extra_env={"FOO": "bar"})
 
         env = instance.execute.call_args[1]["environment"]
         assert env["FOO"] == "bar"
@@ -335,7 +335,7 @@ class TestExecNoninteractive:
         instance.execute.return_value = result
 
         user = _make_user()
-        exec_noninteractive(instance, ["env"], user, 1000, 1000, as_root=True, extra_env={"FOO": "bar"})
+        exec_noninteractive(instance, user, ["env"], 1000, 1000, as_root=True, extra_env={"FOO": "bar"})
 
         env = instance.execute.call_args[1]["environment"]
         assert env["FOO"] == "bar"
@@ -349,7 +349,7 @@ class TestExecNoninteractive:
         instance.execute.return_value = result
 
         user = _make_user()
-        exec_noninteractive(instance, ["env"], user, 1000, 1000, as_root=False, extra_env={"HOME": "/custom"})
+        exec_noninteractive(instance, user, ["env"], 1000, 1000, as_root=False, extra_env={"HOME": "/custom"})
 
         env = instance.execute.call_args[1]["environment"]
         assert env["HOME"] == "/custom"
