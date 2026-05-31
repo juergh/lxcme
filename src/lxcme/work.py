@@ -74,7 +74,7 @@ def main(home_dir: Path | None, instance_name: str) -> None:
         increment_refcount(instance, work_hash)
     except pylxd.exceptions.NotFound:
         result = subprocess.run(
-            ["lxcme", instance_name, "--mount", f"{home_mount}:{Path.home()}"]
+            ["lxcme", instance_name, "--mount", f"{home_mount}:{Path.home()}", "--", "true"]
         )
         if result.returncode != 0:
             sys.exit(result.returncode)
