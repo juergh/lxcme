@@ -248,6 +248,22 @@ class TestMain:
 
         assert result.exit_code == 1
 
+    def test_exits_gracefully_if_creation_aborted(self, tmp_path: Path) -> None:
+        runner = CliRunner()
+
+        mock_client = MagicMock()
+        mock_client.instances.get.side_effect = pylxd.exceptions.NotFound("not found")
+
+        with (
+            patch("lxcme.work.Path.home", return_value=tmp_path),
+            patch("lxcme.work.os.getcwd", return_value="/test/path"),
+            patch("lxcme.work.pylxd.Client", return_value=mock_client),
+            patch("lxcme.work.subprocess.run", return_value=MagicMock(returncode=0)),
+        ):
+            result = runner.invoke(main, ["my-instance"])
+
+        assert result.exit_code == 0
+
     def test_increments_refcount_before_lxcme(self, tmp_path: Path) -> None:
         runner = CliRunner()
 
