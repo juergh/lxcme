@@ -212,26 +212,32 @@ uv run mypy src/lxcme/
 
 A wrapper script for development workflows that:
 
-- Always mounts `$HOME/scratch` as `$HOME` inside the instance
+- Mounts a home directory as `$HOME` inside the instance
 - Mounts `$PWD` at `/work-<hash>` (hash derived from path)
 - Sets working directory to `/work-<hash>`
 - Tracks mount usage with refcounting for concurrent sessions
 - Automatically unmounts when the last session exits
-
-### Requirements
-
-- `$HOME/scratch` directory must exist on the host
+- Creates the instance if it doesn't exist
 
 ### Usage
 
 ```bash
-lxcme-work <instance_name>
+lxcme-work [OPTIONS] <instance_name>
 ```
+
+### Options
+
+| Option | Description |
+|---|---|
+| `--home PATH` | Host directory to mount as $HOME inside the instance (default: $HOME) |
 
 ### Example
 
 ```bash
+# Use default $HOME as home mount
 cd ~/projects/myapp
 lxcme-work noble-amd64
-# Now inside instance at /work-a1b2c3d4 with ~/projects/myapp mounted
+
+# Use custom home directory
+lxcme-work --home ~/scratch noble-amd64
 ```
