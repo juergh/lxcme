@@ -41,6 +41,7 @@ lxcme [options] [instance_name] [[--] command [args...]]
 | `--mount MOUNT_SPEC` | Modify instance mounts. Repeatable, applied left-to-right. See [Mounts](#mounts) for all forms. |
 | `--env KEY=VALUE` | Set an environment variable inside the instance. Repeatable. |
 | `--cwd PATH` | Set the working directory inside the instance (default: user home dir; `/` when `--root` is used without `--cwd`). |
+| `--wait` | Wait for interactive session to exit instead of replacing process. Useful for wrapper scripts. |
 | `-v / --verbose` | Enable debug logging |
 
 ### Examples
