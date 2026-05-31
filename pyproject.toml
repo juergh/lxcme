@@ -10,7 +10,6 @@ requires-python = ">=3.11"
 dependencies = [
     "click>=8.1",
     "pylxd>=2.3",
-    "orjson>=3.9",
 ]
 
 [project.scripts]
