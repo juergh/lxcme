@@ -3,3 +3,15 @@
 \#*
 
 __pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+.venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.tox/
+
+.env
