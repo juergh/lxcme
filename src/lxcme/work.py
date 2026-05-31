@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 import subprocess
 import sys
@@ -14,6 +15,11 @@ import pylxd
 from lxcme.users import get_tracked_mounts, sync_mounts
 
 WORK_CONFIG_PREFIX = "user.lxcme.work."
+
+
+def _configure_logging() -> None:
+    """Configure logging to show INFO level messages."""
+    logging.basicConfig(format="%(levelname)s: %(message)s", level=logging.INFO)
 
 
 def compute_work_hash(path: str) -> str:
@@ -62,6 +68,8 @@ def decrement_refcount(instance: pylxd.models.Instance, work_hash: str) -> int:
 @click.argument("instance_name", required=True)
 def main(home_dir: Path | None, instance_name: str) -> None:
     """Enter LXC instance with $PWD mounted at /work-<hash>."""
+    _configure_logging()
+
     home_mount = home_dir if home_dir is not None else Path.home()
 
     cwd = os.getcwd()
