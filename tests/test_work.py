@@ -333,17 +333,21 @@ class TestMain:
             subprocess_calls.append(cmd)
             return MagicMock(returncode=0)
 
+        mock_sync_mounts = MagicMock()
+
         with (
             patch("lxcme.work.Path.home", return_value=tmp_path),
             patch("lxcme.work.os.getcwd", return_value="/test/path"),
             patch("lxcme.work.pylxd.Client", return_value=mock_client),
             patch("lxcme.work.subprocess.run", side_effect=mock_subprocess_run),
+            patch("lxcme.work.get_tracked_mounts", return_value=[("/test/path", "/work-abc")]),
+            patch("lxcme.work.sync_mounts", mock_sync_mounts),
         ):
             runner.invoke(main, ["my-instance"])
 
-        assert len(subprocess_calls) == 2
+        assert len(subprocess_calls) == 1
         assert "--wait" in subprocess_calls[0]
-        assert "del:/test/path" in subprocess_calls[1]
+        mock_sync_mounts.assert_called_once_with(instance, [])
 
     def test_no_unmount_when_refcount_positive(self, tmp_path: Path) -> None:
         runner = CliRunner()
@@ -360,16 +364,20 @@ class TestMain:
             subprocess_calls.append(cmd)
             return MagicMock(returncode=0)
 
+        mock_sync_mounts = MagicMock()
+
         with (
             patch("lxcme.work.Path.home", return_value=tmp_path),
             patch("lxcme.work.os.getcwd", return_value="/test/path"),
             patch("lxcme.work.pylxd.Client", return_value=mock_client),
             patch("lxcme.work.subprocess.run", side_effect=mock_subprocess_run),
+            patch("lxcme.work.sync_mounts", mock_sync_mounts),
         ):
             runner.invoke(main, ["my-instance"])
 
         assert len(subprocess_calls) == 1
         assert "--wait" in subprocess_calls[0]
+        mock_sync_mounts.assert_not_called()
 
     def test_cleanup_on_nonzero_exit(self, tmp_path: Path) -> None:
         runner = CliRunner()
@@ -387,15 +395,20 @@ class TestMain:
                 return MagicMock(returncode=42)
             return MagicMock(returncode=0)
 
+        mock_sync_mounts = MagicMock()
+
         with (
             patch("lxcme.work.Path.home", return_value=tmp_path),
             patch("lxcme.work.os.getcwd", return_value="/test/path"),
             patch("lxcme.work.pylxd.Client", return_value=mock_client),
             patch("lxcme.work.subprocess.run", side_effect=mock_subprocess_run),
+            patch("lxcme.work.get_tracked_mounts", return_value=[("/test/path", "/work-abc")]),
+            patch("lxcme.work.sync_mounts", mock_sync_mounts),
         ):
             result = runner.invoke(main, ["my-instance"])
 
-        assert len(subprocess_calls) == 2
+        assert len(subprocess_calls) == 1
+        mock_sync_mounts.assert_called_once()
         assert result.exit_code == 42
 
     def test_builds_correct_lxcme_command(self, tmp_path: Path) -> None:
