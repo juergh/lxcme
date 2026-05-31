@@ -78,7 +78,10 @@ def main(home_dir: Path | None, instance_name: str) -> None:
         )
         if result.returncode != 0:
             sys.exit(result.returncode)
-        instance = client.instances.get(instance_name)
+        try:
+            instance = client.instances.get(instance_name)
+        except pylxd.exceptions.NotFound:
+            sys.exit(0)
         instance.sync()
         set_refcount(instance, work_hash, 1)
 
