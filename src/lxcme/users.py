@@ -174,6 +174,8 @@ def sync_mounts(instance: pylxd.models.Instance, mounts: list[tuple[str, str]]) 
 
     # Add or update devices
     for device, (host_path, instance_path) in desired.items():
+        if current.get(device) == (host_path, instance_path):
+            continue
         instance.devices[device] = {"type": "disk", "source": host_path, "path": instance_path}
         instance.config[MOUNT_KEY_PREFIX + device] = f"{host_path}:{instance_path}"
         logger.info("Attached '%s' -> '%s' as device '%s'.", host_path, instance_path, device)
