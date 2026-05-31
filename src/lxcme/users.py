@@ -168,9 +168,10 @@ def sync_mounts(instance: pylxd.models.Instance, mounts: list[tuple[str, str]]) 
     # Remove stale devices and config keys
     for device in current:
         if device not in desired:
+            host_path, instance_path = current[device]
             instance.devices.pop(device, None)
             instance.config.pop(MOUNT_KEY_PREFIX + device, None)
-            logger.info("Removed mount device '%s'.", device)
+            logger.info("Detached '%s' -> '%s' (device '%s').", host_path, instance_path, device)
 
     # Add or update devices
     for device, (host_path, instance_path) in desired.items():
