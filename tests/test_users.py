@@ -183,6 +183,20 @@ class TestSyncMounts:
         assert instance.devices["host_foo"]["path"] == "/new/path"
         instance.sync.assert_called_once()
 
+    def test_does_not_update_unchanged_mounts(self) -> None:
+        instance = MagicMock()
+        instance.config = {MOUNT_KEY_PREFIX + "home_alice": "/home/alice:/home/alice"}
+        instance.devices = {"home_alice": {"type": "disk", "source": "/home/alice", "path": "/home/alice"}}
+
+        sync_mounts(instance, [("/home/alice", "/home/alice"), ("/host/new", "/inst/new")])
+
+        assert instance.devices["home_alice"] == {
+            "type": "disk",
+            "source": "/home/alice",
+            "path": "/home/alice",
+        }
+        assert instance.devices["host_new"]["source"] == "/host/new"
+
 
 class TestGetTrackedMounts:
     def test_returns_tracked_mounts(self) -> None:

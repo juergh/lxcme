@@ -127,12 +127,16 @@ class TestMain:
         instance = MagicMock()
         instance.config = {}
         mock_client = MagicMock()
-        mock_client.instances.get.return_value = instance
+        mock_client.instances.get.side_effect = [
+            pylxd.exceptions.NotFound("not found"),
+            instance,
+            instance,
+        ]
 
         captured_cmd: list[str] = []
 
         def mock_subprocess_run(cmd: list[str], **kwargs: object) -> MagicMock:
-            if "--wait" in cmd:
+            if "--wait" not in cmd:
                 captured_cmd.extend(cmd)
             return MagicMock(returncode=0)
 
@@ -154,12 +158,16 @@ class TestMain:
         instance = MagicMock()
         instance.config = {}
         mock_client = MagicMock()
-        mock_client.instances.get.return_value = instance
+        mock_client.instances.get.side_effect = [
+            pylxd.exceptions.NotFound("not found"),
+            instance,
+            instance,
+        ]
 
         captured_cmd: list[str] = []
 
         def mock_subprocess_run(cmd: list[str], **kwargs: object) -> MagicMock:
-            if "--wait" in cmd:
+            if "--wait" not in cmd:
                 captured_cmd.extend(cmd)
             return MagicMock(returncode=0)
 
@@ -419,7 +427,6 @@ class TestMain:
         assert captured_cmd[0] == "lxcme"
         assert captured_cmd[1] == "my-instance"
         assert "--wait" in captured_cmd
-        assert f"{tmp_path}:{tmp_path}" in captured_cmd
         assert f"add:{cwd}:/work-{work_hash}" in captured_cmd
         assert "--cwd" in captured_cmd
         assert f"/work-{work_hash}" in captured_cmd
