@@ -50,13 +50,17 @@ def decrement_refcount(instance: pylxd.models.Instance, work_hash: str) -> int:
 
 
 @click.command()
+@click.option(
+    "--home",
+    "home_dir",
+    default=None,
+    type=click.Path(exists=True, file_okay=False, path_type=Path),
+    help=f"Host directory to mount as $HOME inside the instance (default: {Path.home()}).",
+)
 @click.argument("instance_name", required=True)
-def main(instance_name: str) -> None:
+def main(home_dir: Path | None, instance_name: str) -> None:
     """Enter LXC instance with $PWD mounted at /work-<hash>."""
-    scratch_dir = Path.home() / "scratch"
-    if not scratch_dir.is_dir():
-        click.echo(f"Error: {scratch_dir} does not exist", err=True)
-        sys.exit(1)
+    home_mount = home_dir if home_dir is not None else Path.home()
 
     cwd = os.getcwd()
     work_hash = compute_work_hash(cwd)
@@ -66,16 +70,21 @@ def main(instance_name: str) -> None:
 
     try:
         instance = client.instances.get(instance_name)
+        instance.sync()
+        increment_refcount(instance, work_hash)
     except pylxd.exceptions.NotFound:
-        click.echo(f"Error: instance '{instance_name}' not found", err=True)
-        sys.exit(1)
-
-    instance.sync()
-    increment_refcount(instance, work_hash)
+        result = subprocess.run(
+            ["lxcme", instance_name, "--mount", f"{home_mount}:{Path.home()}"]
+        )
+        if result.returncode != 0:
+            sys.exit(result.returncode)
+        instance = client.instances.get(instance_name)
+        instance.sync()
+        set_refcount(instance, work_hash, 1)
 
     cmd = [
         "lxcme", instance_name, "--wait",
-        "--mount", f"{scratch_dir}:{Path.home()}",
+        "--mount", f"{home_mount}:{Path.home()}",
         "--mount", f"add:{cwd}:{work_path}",
         "--cwd", work_path,
     ]
