@@ -1,4 +1,4 @@
-"""Tests for lxcme.host module."""
+"""Tests for lxcme.target module."""
 
 from __future__ import annotations
 
@@ -6,12 +6,11 @@ from unittest.mock import mock_open, patch
 
 import pytest
 
-from lxcme.host import (
-    HostInfo,
+from lxcme.target import (
     TargetInfo,
+    _get_host_info,
     _machine_to_lxc_arch,
     _parse_os_release,
-    get_host_info,
     get_target_info,
 )
 
@@ -75,7 +74,7 @@ class TestGetHostInfo:
             patch("builtins.open", mock_open(read_data=OS_RELEASE_UBUNTU)),
             patch("platform.machine", return_value="x86_64"),
         ):
-            info = get_host_info()
+            info = _get_host_info()
 
         assert info.distro == "ubuntu"
         assert info.release == "noble"
@@ -86,39 +85,51 @@ class TestGetHostInfo:
             patch("builtins.open", mock_open(read_data=OS_RELEASE_FEDORA)),
             patch("platform.machine", return_value="x86_64"),
         ):
-            info = get_host_info()
+            info = _get_host_info()
 
         assert info.distro == "fedora"
         assert info.release == "40"
 
-    def test_no_overrides_accepted(self) -> None:
-        import inspect
-
-        assert inspect.signature(get_host_info).parameters == {}
-
 
 class TestGetTargetInfo:
-    def _host(self) -> HostInfo:
-        return HostInfo(distro="ubuntu", release="noble", arch="amd64")
-
     def test_defaults_to_host_values(self) -> None:
-        target = get_target_info(self._host())
+        with (
+            patch("builtins.open", mock_open(read_data=OS_RELEASE_UBUNTU)),
+            patch("platform.machine", return_value="x86_64"),
+        ):
+            target = get_target_info(None, None, None)
+
         assert target.distro == "ubuntu"
         assert target.release == "noble"
         assert target.arch == "amd64"
 
     def test_overrides_distro_release_arch(self) -> None:
-        target = get_target_info(self._host(), distro="debian", release="bookworm", arch="arm64")
+        with (
+            patch("builtins.open", mock_open(read_data=OS_RELEASE_UBUNTU)),
+            patch("platform.machine", return_value="x86_64"),
+        ):
+            target = get_target_info("debian", "bookworm", "arm64")
+
         assert target.distro == "debian"
         assert target.release == "bookworm"
         assert target.arch == "arm64"
 
     def test_host_distro_is_always_host(self) -> None:
-        target = get_target_info(self._host(), distro="debian")
+        with (
+            patch("builtins.open", mock_open(read_data=OS_RELEASE_UBUNTU)),
+            patch("platform.machine", return_value="x86_64"),
+        ):
+            target = get_target_info("debian", None, None)
+
         assert target.host_distro == "ubuntu"
 
     def test_overrides_are_lowercased(self) -> None:
-        target = get_target_info(self._host(), distro="Debian", release="Bookworm")
+        with (
+            patch("builtins.open", mock_open(read_data=OS_RELEASE_UBUNTU)),
+            patch("platform.machine", return_value="x86_64"),
+        ):
+            target = get_target_info("Debian", "Bookworm", None)
+
         assert target.distro == "debian"
         assert target.release == "bookworm"
 

@@ -9,11 +9,10 @@ import pytest
 from click.testing import CliRunner
 
 from lxcme.cli import MountOp, _parse_mount_ops, _resolve_mounts, main
-from lxcme.host import HostInfo, TargetInfo
+from lxcme.target import TargetInfo
 from lxcme.users import User
 
 _INSTANCE_IDS = (1000, 1000)
-_HOST_UBUNTU = HostInfo(distro="ubuntu", release="noble", arch="amd64")
 _TARGET_UBUNTU = TargetInfo(distro="ubuntu", release="noble", arch="amd64", host_distro="ubuntu")
 
 
@@ -144,7 +143,6 @@ class TestMainExistingInstance:
         instance = _make_instance()
 
         with (
-            patch("lxcme.cli.get_host_info", return_value=_HOST_UBUNTU),
             patch("lxcme.cli.get_target_info", return_value=_TARGET_UBUNTU),
             patch("lxcme.cli.get_current_user", return_value=user),
             patch("lxcme.cli.pylxd.Client"),
@@ -169,7 +167,6 @@ class TestMainExistingInstance:
 
         exec_result = (0, "output\n", "")
         with (
-            patch("lxcme.cli.get_host_info", return_value=_HOST_UBUNTU),
             patch("lxcme.cli.get_target_info", return_value=_TARGET_UBUNTU),
             patch("lxcme.cli.get_current_user", return_value=user),
             patch("lxcme.cli.pylxd.Client"),
@@ -193,7 +190,6 @@ class TestMainExistingInstance:
         instance = _make_instance()
 
         with (
-            patch("lxcme.cli.get_host_info", return_value=_HOST_UBUNTU),
             patch("lxcme.cli.get_target_info", return_value=_TARGET_UBUNTU),
             patch("lxcme.cli.get_current_user", return_value=user),
             patch("lxcme.cli.pylxd.Client"),
@@ -217,7 +213,6 @@ class TestMainExistingInstance:
         instance = _make_instance()
 
         with (
-            patch("lxcme.cli.get_host_info", return_value=_HOST_UBUNTU),
             patch("lxcme.cli.get_target_info", return_value=_TARGET_UBUNTU),
             patch("lxcme.cli.get_current_user", return_value=user),
             patch("lxcme.cli.pylxd.Client"),
@@ -243,7 +238,6 @@ class TestMainNewInstance:
         user = _make_user()
 
         with (
-            patch("lxcme.cli.get_host_info", return_value=_HOST_UBUNTU),
             patch("lxcme.cli.get_target_info", return_value=_TARGET_UBUNTU),
             patch("lxcme.cli.get_current_user", return_value=user),
             patch("lxcme.cli.pylxd.Client"),
@@ -259,7 +253,6 @@ class TestMainNewInstance:
         user = _make_user()
 
         with (
-            patch("lxcme.cli.get_host_info", return_value=_HOST_UBUNTU),
             patch("lxcme.cli.get_target_info", return_value=_TARGET_UBUNTU),
             patch("lxcme.cli.get_current_user", return_value=user),
             patch("lxcme.cli.pylxd.Client"),
@@ -277,7 +270,6 @@ class TestMainNewInstance:
         new_instance = _make_instance(setup_done=False)
 
         with (
-            patch("lxcme.cli.get_host_info", return_value=_HOST_UBUNTU),
             patch("lxcme.cli.get_target_info", return_value=_TARGET_UBUNTU),
             patch("lxcme.cli.get_current_user", return_value=user),
             patch("lxcme.cli.pylxd.Client"),
@@ -305,7 +297,6 @@ class TestMainDistroOverrides:
         debian_target = TargetInfo(distro="debian", release="bookworm", arch="arm64", host_distro="ubuntu")
 
         with (
-            patch("lxcme.cli.get_host_info", return_value=_HOST_UBUNTU),
             patch("lxcme.cli.get_target_info", return_value=debian_target) as mock_get_target,
             patch("lxcme.cli.get_current_user", return_value=user),
             patch("lxcme.cli.pylxd.Client"),
@@ -320,7 +311,7 @@ class TestMainDistroOverrides:
         ):
             runner.invoke(main, ["--distro", "debian", "--release", "bookworm", "--arch", "arm64"])
 
-        mock_get_target.assert_called_once_with(_HOST_UBUNTU, distro="debian", release="bookworm", arch="arm64")
+        mock_get_target.assert_called_once_with("debian", "bookworm", "arm64")
 
     def test_non_ubuntu_debian_instance_name_includes_distro(self) -> None:
         runner = CliRunner()
@@ -331,7 +322,6 @@ class TestMainDistroOverrides:
         new_instance = _make_instance(name="fedora-40-amd64", setup_done=False)
 
         with (
-            patch("lxcme.cli.get_host_info", return_value=_HOST_UBUNTU),
             patch("lxcme.cli.get_target_info", return_value=fedora_target),
             patch("lxcme.cli.get_current_user", return_value=user),
             patch("lxcme.cli.pylxd.Client"),
@@ -360,7 +350,6 @@ class TestMainDistroOverrides:
         new_instance = _make_instance(name="bookworm-amd64", setup_done=False)
 
         with (
-            patch("lxcme.cli.get_host_info", return_value=_HOST_UBUNTU),
             patch("lxcme.cli.get_target_info", return_value=debian_target),
             patch("lxcme.cli.get_current_user", return_value=user),
             patch("lxcme.cli.pylxd.Client"),
@@ -388,7 +377,6 @@ class TestMainDistroOverrides:
         new_instance = _make_instance(name="noble-amd64", setup_done=False)
 
         with (
-            patch("lxcme.cli.get_host_info", return_value=_HOST_UBUNTU),
             patch("lxcme.cli.get_target_info", return_value=_TARGET_UBUNTU),
             patch("lxcme.cli.get_current_user", return_value=user),
             patch("lxcme.cli.pylxd.Client"),
@@ -416,7 +404,6 @@ class TestMainDebianChroot:
         instance = _make_instance()
 
         with (
-            patch("lxcme.cli.get_host_info", return_value=_HOST_UBUNTU),
             patch("lxcme.cli.get_target_info", return_value=target),
             patch("lxcme.cli.get_current_user", return_value=user),
             patch("lxcme.cli.pylxd.Client"),
@@ -456,7 +443,6 @@ class TestMainDebianChroot:
         instance = _make_instance()
 
         with (
-            patch("lxcme.cli.get_host_info", return_value=_HOST_UBUNTU),
             patch("lxcme.cli.get_target_info", return_value=_TARGET_UBUNTU),
             patch("lxcme.cli.get_current_user", return_value=user),
             patch("lxcme.cli.pylxd.Client"),
@@ -480,7 +466,6 @@ class TestMainDebianChroot:
         instance = _make_instance()
 
         with (
-            patch("lxcme.cli.get_host_info", return_value=_HOST_UBUNTU),
             patch("lxcme.cli.get_target_info", return_value=_TARGET_UBUNTU),
             patch("lxcme.cli.get_current_user", return_value=user),
             patch("lxcme.cli.pylxd.Client"),
@@ -508,7 +493,6 @@ class TestMainEnvVars:
         exec_result = (0, "", "")
 
         with (
-            patch("lxcme.cli.get_host_info", return_value=_HOST_UBUNTU),
             patch("lxcme.cli.get_target_info", return_value=_TARGET_UBUNTU),
             patch("lxcme.cli.get_current_user", return_value=user),
             patch("lxcme.cli.pylxd.Client"),
@@ -572,7 +556,6 @@ class TestMainMounts:
         instance = _make_instance()
 
         with (
-            patch("lxcme.cli.get_host_info", return_value=_HOST_UBUNTU),
             patch("lxcme.cli.get_target_info", return_value=_TARGET_UBUNTU),
             patch("lxcme.cli.get_current_user", return_value=user),
             patch("lxcme.cli.pylxd.Client"),
@@ -642,7 +625,6 @@ class TestMainMounts:
         instance = _make_instance()
 
         with (
-            patch("lxcme.cli.get_host_info", return_value=_HOST_UBUNTU),
             patch("lxcme.cli.get_target_info", return_value=_TARGET_UBUNTU),
             patch("lxcme.cli.get_current_user", return_value=user),
             patch("lxcme.cli.pylxd.Client"),
@@ -667,7 +649,6 @@ class TestMainMounts:
         instance = _make_instance()
 
         with (
-            patch("lxcme.cli.get_host_info", return_value=_HOST_UBUNTU),
             patch("lxcme.cli.get_target_info", return_value=_TARGET_UBUNTU),
             patch("lxcme.cli.get_current_user", return_value=user),
             patch("lxcme.cli.pylxd.Client"),
@@ -695,7 +676,6 @@ class TestMainCwd:
         exec_result = (0, "", "")
 
         with (
-            patch("lxcme.cli.get_host_info", return_value=_HOST_UBUNTU),
             patch("lxcme.cli.get_target_info", return_value=_TARGET_UBUNTU),
             patch("lxcme.cli.get_current_user", return_value=user),
             patch("lxcme.cli.pylxd.Client"),
@@ -746,7 +726,6 @@ class TestMainWait:
         instance = _make_instance()
 
         with (
-            patch("lxcme.cli.get_host_info", return_value=_HOST_UBUNTU),
             patch("lxcme.cli.get_target_info", return_value=_TARGET_UBUNTU),
             patch("lxcme.cli.get_current_user", return_value=user),
             patch("lxcme.cli.pylxd.Client"),
@@ -772,7 +751,6 @@ class TestMainWait:
         instance = _make_instance()
 
         with (
-            patch("lxcme.cli.get_host_info", return_value=_HOST_UBUNTU),
             patch("lxcme.cli.get_target_info", return_value=_TARGET_UBUNTU),
             patch("lxcme.cli.get_current_user", return_value=user),
             patch("lxcme.cli.pylxd.Client"),
@@ -795,7 +773,6 @@ class TestMainWait:
         instance = _make_instance()
 
         with (
-            patch("lxcme.cli.get_host_info", return_value=_HOST_UBUNTU),
             patch("lxcme.cli.get_target_info", return_value=_TARGET_UBUNTU),
             patch("lxcme.cli.get_current_user", return_value=user),
             patch("lxcme.cli.pylxd.Client"),
@@ -820,7 +797,6 @@ class TestMainWait:
         instance = _make_instance()
 
         with (
-            patch("lxcme.cli.get_host_info", return_value=_HOST_UBUNTU),
             patch("lxcme.cli.get_target_info", return_value=_TARGET_UBUNTU),
             patch("lxcme.cli.get_current_user", return_value=user),
             patch("lxcme.cli.pylxd.Client"),
