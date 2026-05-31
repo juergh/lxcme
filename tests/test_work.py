@@ -206,6 +206,8 @@ class TestMain:
         assert creation_cmd[1] == "my-instance"
         assert "--wait" not in creation_cmd
         assert f"{tmp_path}:{tmp_path}" in creation_cmd
+        assert "--" in creation_cmd
+        assert "true" in creation_cmd
 
     def test_sets_refcount_after_creation(self, tmp_path: Path) -> None:
         runner = CliRunner()
