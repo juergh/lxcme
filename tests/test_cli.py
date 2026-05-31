@@ -737,3 +737,104 @@ class TestMainCwd:
         _, kwargs = mock_exec.call_args
         assert kwargs.get("cwd") == "/tmp"
         assert kwargs.get("as_root") is True
+
+
+class TestMainWait:
+    def test_wait_flag_uses_subprocess_function(self) -> None:
+        runner = CliRunner()
+        user = _make_user()
+        instance = _make_instance()
+
+        with (
+            patch("lxcme.cli.get_host_info", return_value=_HOST_UBUNTU),
+            patch("lxcme.cli.get_target_info", return_value=_TARGET_UBUNTU),
+            patch("lxcme.cli.get_current_user", return_value=user),
+            patch("lxcme.cli.pylxd.Client"),
+            patch("lxcme.cli.find_instance", return_value=instance),
+            patch("lxcme.cli.is_setup_done", return_value=True),
+            patch("lxcme.cli.ensure_running"),
+            patch("lxcme.cli.get_tracked_mounts", return_value=[]),
+            patch("lxcme.cli.sync_mounts", return_value=False),
+            patch("lxcme.cli.get_instance_user_ids", return_value=_INSTANCE_IDS),
+            patch("lxcme.cli.is_interactive", return_value=True),
+            patch("lxcme.cli.exec_interactive") as mock_exec,
+            patch("lxcme.cli.exec_interactive_wait", return_value=0) as mock_wait,
+        ):
+            result = runner.invoke(main, ["--wait"])
+
+        mock_exec.assert_not_called()
+        mock_wait.assert_called_once()
+        assert result.exit_code == 0
+
+    def test_wait_flag_exits_with_command_exit_code(self) -> None:
+        runner = CliRunner()
+        user = _make_user()
+        instance = _make_instance()
+
+        with (
+            patch("lxcme.cli.get_host_info", return_value=_HOST_UBUNTU),
+            patch("lxcme.cli.get_target_info", return_value=_TARGET_UBUNTU),
+            patch("lxcme.cli.get_current_user", return_value=user),
+            patch("lxcme.cli.pylxd.Client"),
+            patch("lxcme.cli.find_instance", return_value=instance),
+            patch("lxcme.cli.is_setup_done", return_value=True),
+            patch("lxcme.cli.ensure_running"),
+            patch("lxcme.cli.get_tracked_mounts", return_value=[]),
+            patch("lxcme.cli.sync_mounts", return_value=False),
+            patch("lxcme.cli.get_instance_user_ids", return_value=_INSTANCE_IDS),
+            patch("lxcme.cli.is_interactive", return_value=True),
+            patch("lxcme.cli.exec_interactive_wait", return_value=42),
+        ):
+            result = runner.invoke(main, ["--wait"])
+
+        assert result.exit_code == 42
+
+    def test_no_wait_flag_uses_execvp(self) -> None:
+        runner = CliRunner()
+        user = _make_user()
+        instance = _make_instance()
+
+        with (
+            patch("lxcme.cli.get_host_info", return_value=_HOST_UBUNTU),
+            patch("lxcme.cli.get_target_info", return_value=_TARGET_UBUNTU),
+            patch("lxcme.cli.get_current_user", return_value=user),
+            patch("lxcme.cli.pylxd.Client"),
+            patch("lxcme.cli.find_instance", return_value=instance),
+            patch("lxcme.cli.is_setup_done", return_value=True),
+            patch("lxcme.cli.ensure_running"),
+            patch("lxcme.cli.get_tracked_mounts", return_value=[]),
+            patch("lxcme.cli.sync_mounts", return_value=False),
+            patch("lxcme.cli.get_instance_user_ids", return_value=_INSTANCE_IDS),
+            patch("lxcme.cli.is_interactive", return_value=True),
+            patch("lxcme.cli.exec_interactive") as mock_exec,
+            patch("lxcme.cli.exec_interactive_wait") as mock_wait,
+        ):
+            runner.invoke(main, [])
+
+        mock_exec.assert_called_once()
+        mock_wait.assert_not_called()
+
+    def test_wait_flag_ignored_for_noninteractive(self) -> None:
+        runner = CliRunner()
+        user = _make_user()
+        instance = _make_instance()
+
+        with (
+            patch("lxcme.cli.get_host_info", return_value=_HOST_UBUNTU),
+            patch("lxcme.cli.get_target_info", return_value=_TARGET_UBUNTU),
+            patch("lxcme.cli.get_current_user", return_value=user),
+            patch("lxcme.cli.pylxd.Client"),
+            patch("lxcme.cli.find_instance", return_value=instance),
+            patch("lxcme.cli.is_setup_done", return_value=True),
+            patch("lxcme.cli.ensure_running"),
+            patch("lxcme.cli.get_tracked_mounts", return_value=[]),
+            patch("lxcme.cli.sync_mounts", return_value=False),
+            patch("lxcme.cli.get_instance_user_ids", return_value=_INSTANCE_IDS),
+            patch("lxcme.cli.is_interactive", return_value=False),
+            patch("lxcme.cli.exec_noninteractive", return_value=(0, "", "")),
+            patch("lxcme.cli.exec_interactive_wait") as mock_wait,
+        ):
+            result = runner.invoke(main, ["--wait", "--", "ls"])
+
+        mock_wait.assert_not_called()
+        assert result.exit_code == 0

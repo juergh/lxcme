@@ -11,6 +11,7 @@ from lxcme.instances import (
     create_instance,
     ensure_running,
     exec_interactive,
+    exec_interactive_wait,
     exec_noninteractive,
     find_instance,
     is_interactive,
@@ -352,6 +353,81 @@ class TestExecNoninteractive:
 
         env = instance.execute.call_args[1]["environment"]
         assert env["HOME"] == "/custom"
+
+
+class TestExecInteractiveWait:
+    def test_calls_subprocess_run(self) -> None:
+        user = _make_user()
+        with patch("lxcme.instances.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            exit_code = exec_interactive_wait(
+                "mybox", user, ["bash", "--login"], 1000, 1000, as_root=False
+            )
+
+        mock_run.assert_called_once()
+        assert exit_code == 0
+
+    def test_returns_nonzero_exit_code(self) -> None:
+        user = _make_user()
+        with patch("lxcme.instances.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=42)
+            exit_code = exec_interactive_wait(
+                "mybox", user, ["bash", "--login"], 1000, 1000, as_root=False
+            )
+
+        assert exit_code == 42
+
+    def test_argv_matches_exec_interactive(self) -> None:
+        user = _make_user()
+        with (
+            patch("lxcme.instances.subprocess.run") as mock_run,
+            patch("os.execvp") as mock_exec,
+        ):
+            mock_run.return_value = MagicMock(returncode=0)
+
+            exec_interactive_wait("mybox", user, ["bash"], 1000, 1000, as_root=False)
+            exec_interactive("mybox", user, ["bash"], 1000, 1000, as_root=False)
+
+        subprocess_argv = mock_run.call_args[0][0]
+        execvp_argv = mock_exec.call_args[0][1]
+        assert subprocess_argv == execvp_argv
+
+    def test_extra_env_passed(self) -> None:
+        user = _make_user()
+        with patch("lxcme.instances.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            exec_interactive_wait(
+                "mybox", user, ["bash"], 1000, 1000, as_root=False,
+                extra_env={"FOO": "bar"}
+            )
+
+        argv = mock_run.call_args[0][0]
+        assert "FOO=bar" in argv
+
+    def test_cwd_passed(self) -> None:
+        user = _make_user()
+        with patch("lxcme.instances.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            exec_interactive_wait(
+                "mybox", user, ["bash"], 1000, 1000, as_root=False,
+                cwd="/custom/path"
+            )
+
+        argv = mock_run.call_args[0][0]
+        idx = argv.index("--cwd")
+        assert argv[idx + 1] == "/custom/path"
+
+    def test_runs_as_root(self) -> None:
+        user = _make_user()
+        with patch("lxcme.instances.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            exec_interactive_wait(
+                "mybox", user, ["bash"], 1000, 1000, as_root=True
+            )
+
+        argv = mock_run.call_args[0][0]
+        assert "--user" not in argv
+        assert "--group" not in argv
 
 
 class TestIsInteractive:
