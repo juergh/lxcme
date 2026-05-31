@@ -207,3 +207,31 @@ uv run ruff format src/ tests/
 # Type checking
 uv run mypy src/lxcme/
 ```
+
+## lxcme-work
+
+A wrapper script for development workflows that:
+
+- Always mounts `$HOME/scratch` as `$HOME` inside the instance
+- Mounts `$PWD` at `/work-<hash>` (hash derived from path)
+- Sets working directory to `/work-<hash>`
+- Tracks mount usage with refcounting for concurrent sessions
+- Automatically unmounts when the last session exits
+
+### Requirements
+
+- `$HOME/scratch` directory must exist on the host
+
+### Usage
+
+```bash
+lxcme-work <instance_name>
+```
+
+### Example
+
+```bash
+cd ~/projects/myapp
+lxcme-work noble-amd64
+# Now inside instance at /work-a1b2c3d4 with ~/projects/myapp mounted
+```
