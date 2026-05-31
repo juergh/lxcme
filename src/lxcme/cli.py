@@ -269,8 +269,8 @@ def main(
     else:
         exit_code, stdout, stderr = exec_noninteractive(
             instance,
-            resolved_command,
             user,
+            resolved_command,
             instance_uid,
             instance_gid,
             as_root=root,

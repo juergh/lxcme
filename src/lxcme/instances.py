@@ -139,8 +139,8 @@ def exec_interactive_wait(
 
 def exec_noninteractive(
     instance: pylxd.models.Instance,
-    command: list[str],
     user: User,
+    command: list[str],
     instance_uid: int,
     instance_gid: int,
     *,
