@@ -87,7 +87,6 @@ def main(home_dir: Path | None, instance_name: str) -> None:
 
     cmd = [
         "lxcme", instance_name, "--wait",
-        "--mount", f"{home_mount}:{Path.home()}",
         "--mount", f"add:{cwd}:{work_path}",
         "--cwd", work_path,
     ]
