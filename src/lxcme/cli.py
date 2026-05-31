@@ -191,14 +191,14 @@ def main(
     host = get_host_info()
     target = get_target_info(host, distro=distro, release=release, arch=arch)
     user = get_current_user()
-    name = instance_name or target.instance_alias
+    instance_name = instance_name or target.instance_alias
     resolved_command = _resolve_command(tuple(cmd_list))
     mount_ops = [op for m in mounts for op in _parse_mount_ops(m)]
     parsed_env = dict(_parse_env(e) for e in env_vars)
 
     client = pylxd.Client()
 
-    instance = find_instance(client, name)
+    instance = find_instance(client, instance_name)
     is_new = instance is None
 
     if is_new:
@@ -206,7 +206,7 @@ def main(
         initial_mounts = _resolve_mounts(mount_ops, [])
         mount_summary = ", ".join(f"{h}:{i}" for h, i in initial_mounts) or "(none)"
         click.echo(
-            f"Instance '{name}' does not exist.\n"
+            f"Instance '{instance_name}' does not exist.\n"
             f"  Image  : {target.image_alias}\n"
             f"  Distro : {target.distro} {target.release} ({target.arch})\n"
             f"  User   : {user.username} (uid={user.uid}, gid={user.gid})\n"
@@ -217,7 +217,7 @@ def main(
             sys.exit(0)
 
         image = ensure_image(client, target.distro, target.release, target.image_alias)
-        instance = create_instance(client, name, image)
+        instance = create_instance(client, instance_name, image)
 
     assert instance is not None
 
@@ -244,7 +244,7 @@ def main(
     if is_interactive(resolved_command):
         if wait:
             exit_code = exec_interactive_wait(
-                name,
+                instance_name,
                 user,
                 resolved_command,
                 instance_uid,
@@ -256,7 +256,7 @@ def main(
             sys.exit(exit_code)
         else:
             exec_interactive(
-                name,
+                instance_name,
                 user,
                 resolved_command,
                 instance_uid,
