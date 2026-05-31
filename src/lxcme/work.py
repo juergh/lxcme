@@ -11,6 +11,8 @@ from pathlib import Path
 import click
 import pylxd
 
+from lxcme.users import get_tracked_mounts, sync_mounts
+
 WORK_CONFIG_PREFIX = "user.lxcme.work."
 
 
@@ -99,9 +101,8 @@ def main(home_dir: Path | None, instance_name: str) -> None:
         instance.sync()
         final_count = decrement_refcount(instance, work_hash)
         if final_count <= 0:
-            subprocess.run(
-                ["lxcme", instance_name, "--mount", f"del:{cwd}"],
-                capture_output=True,
-            )
+            current_mounts = get_tracked_mounts(instance)
+            new_mounts = [(h, i) for h, i in current_mounts if h != cwd]
+            sync_mounts(instance, new_mounts)
 
     sys.exit(exit_code)
