@@ -17,6 +17,7 @@ from lxcme.instances import (
     create_instance,
     ensure_running,
     exec_interactive,
+    exec_interactive_wait,
     exec_noninteractive,
     find_instance,
     is_interactive,
@@ -144,6 +145,7 @@ def _parse_env(value: str) -> tuple[str, str]:
 @click.option("--arch", default=None, metavar="ARCH", help="Override host architecture.")
 @click.option("--verbose", "-v", is_flag=True, default=False, help="Enable debug logging.")
 @click.option("--cwd", "cwd", default=None, metavar="PATH", help="CWD inside the instance (default: user home dir).")
+@click.option("--wait", is_flag=True, default=False, help="Wait for interactive session to exit.")
 @click.argument("instance_name", required=False, default=None)
 @click.argument("command", nargs=-1, type=click.UNPROCESSED)
 def main(
@@ -155,6 +157,7 @@ def main(
     arch: str | None,
     verbose: bool,
     cwd: str | None,
+    wait: bool,
     instance_name: str | None,
     command: tuple[str, ...],
 ) -> None:
@@ -239,17 +242,30 @@ def main(
         parsed_env.setdefault("debian_chroot", "lxc")
 
     if is_interactive(resolved_command):
-        exec_interactive(
-            name,
-            user,
-            resolved_command,
-            instance_uid,
-            instance_gid,
-            as_root=root,
-            extra_env=parsed_env,
-            cwd=cwd,
-        )
-        # exec_interactive replaces the process; code below is unreachable
+        if wait:
+            exit_code = exec_interactive_wait(
+                name,
+                user,
+                resolved_command,
+                instance_uid,
+                instance_gid,
+                as_root=root,
+                extra_env=parsed_env,
+                cwd=cwd,
+            )
+            sys.exit(exit_code)
+        else:
+            exec_interactive(
+                name,
+                user,
+                resolved_command,
+                instance_uid,
+                instance_gid,
+                as_root=root,
+                extra_env=parsed_env,
+                cwd=cwd,
+            )
+            # exec_interactive replaces the process; code below is unreachable
     else:
         exit_code, stdout, stderr = exec_noninteractive(
             instance,

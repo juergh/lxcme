@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -95,6 +96,45 @@ def exec_interactive(
 
     argv += ["--"] + command
     os.execvp("lxc", argv)
+
+
+def exec_interactive_wait(
+    instance_name: str,
+    user: User,
+    command: list[str],
+    instance_uid: int,
+    instance_gid: int,
+    *,
+    as_root: bool,
+    extra_env: dict[str, str] | None = None,
+    cwd: str | None = None,
+) -> int:
+    """Run interactive lxc exec session via subprocess, returning exit code."""
+    argv = ["lxc", "exec", instance_name]
+
+    effective_cwd = cwd if cwd is not None else str(user.home)
+    argv += ["--cwd", effective_cwd]
+
+    if not as_root:
+        argv += [
+            "--user",
+            str(instance_uid),
+            "--group",
+            str(instance_gid),
+            "--env",
+            f"HOME={user.home}",
+            "--env",
+            f"USER={user.username}",
+            "--env",
+            f"LOGNAME={user.username}",
+        ]
+
+    for key, value in (extra_env or {}).items():
+        argv += ["--env", f"{key}={value}"]
+
+    argv += ["--"] + command
+    result = subprocess.run(argv)
+    return result.returncode
 
 
 def exec_noninteractive(
