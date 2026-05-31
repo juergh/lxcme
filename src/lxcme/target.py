@@ -1,4 +1,4 @@
-"""Host system introspection: distro, release, architecture."""
+"""Target instance configuration with host system introspection."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
-class HostInfo:
+class _HostInfo:
     """Host system information from /etc/os-release and platform."""
 
     distro: str
@@ -17,7 +17,7 @@ class HostInfo:
 
 @dataclass(frozen=True)
 class TargetInfo:
-    """Target instance configuration derived from host info with optional overrides."""
+    """Target instance configuration with defaults derived from host info."""
 
     distro: str
     release: str
@@ -52,28 +52,13 @@ def _parse_os_release() -> dict[str, str]:
     return result
 
 
-def get_host_info() -> HostInfo:
+def _get_host_info() -> _HostInfo:
     """Detect host system information from /etc/os-release and platform."""
     os_release = _parse_os_release()
-    return HostInfo(
+    return _HostInfo(
         distro=os_release.get("ID", "").lower(),
         release=(os_release.get("VERSION_CODENAME") or os_release.get("VERSION_ID", "")).lower(),
         arch=_machine_to_lxc_arch(platform.machine()),
-    )
-
-
-def get_target_info(
-    host: HostInfo,
-    distro: str | None = None,
-    release: str | None = None,
-    arch: str | None = None,
-) -> TargetInfo:
-    """Build TargetInfo from host info with optional overrides."""
-    return TargetInfo(
-        distro=(distro or host.distro).lower(),
-        release=(release or host.release).lower(),
-        arch=arch or host.arch,
-        host_distro=host.distro,
     )
 
 
@@ -88,3 +73,18 @@ def _machine_to_lxc_arch(machine: str) -> str:
         "riscv64": "riscv64",
     }
     return mapping.get(machine, machine)
+
+
+def get_target_info(
+    distro: str | None,
+    release: str | None,
+    arch: str | None,
+) -> TargetInfo:
+    """Build TargetInfo with optional overrides, using host defaults for unspecified values."""
+    host = _get_host_info()
+    return TargetInfo(
+        distro=(distro or host.distro).lower(),
+        release=(release or host.release).lower(),
+        arch=arch or host.arch,
+        host_distro=host.distro,
+    )

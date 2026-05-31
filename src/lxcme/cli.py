@@ -11,7 +11,6 @@ from typing import Literal
 import click
 import pylxd
 
-from lxcme.host import get_host_info, get_target_info
 from lxcme.images import ensure_image
 from lxcme.instances import (
     create_instance,
@@ -22,6 +21,7 @@ from lxcme.instances import (
     find_instance,
     is_interactive,
 )
+from lxcme.target import get_target_info
 from lxcme.users import (
     get_current_user,
     get_instance_user_ids,
@@ -188,8 +188,7 @@ def main(
     if cmd_list and cmd_list[0] == "--":
         cmd_list = cmd_list[1:]
 
-    host = get_host_info()
-    target = get_target_info(host, distro=distro, release=release, arch=arch)
+    target = get_target_info(distro, release, arch)
     user = get_current_user()
     instance_name = instance_name or target.instance_alias
     resolved_command = _resolve_command(tuple(cmd_list))
