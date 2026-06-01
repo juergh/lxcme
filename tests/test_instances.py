@@ -360,9 +360,7 @@ class TestExecInteractiveWait:
         user = _make_user()
         with patch("lxcme.instances.subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(returncode=0)
-            exit_code = exec_interactive_wait(
-                "mybox", user, ["bash", "--login"], 1000, 1000, as_root=False
-            )
+            exit_code = exec_interactive_wait("mybox", user, ["bash", "--login"], 1000, 1000, as_root=False)
 
         mock_run.assert_called_once()
         assert exit_code == 0
@@ -371,9 +369,7 @@ class TestExecInteractiveWait:
         user = _make_user()
         with patch("lxcme.instances.subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(returncode=42)
-            exit_code = exec_interactive_wait(
-                "mybox", user, ["bash", "--login"], 1000, 1000, as_root=False
-            )
+            exit_code = exec_interactive_wait("mybox", user, ["bash", "--login"], 1000, 1000, as_root=False)
 
         assert exit_code == 42
 
@@ -396,10 +392,7 @@ class TestExecInteractiveWait:
         user = _make_user()
         with patch("lxcme.instances.subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(returncode=0)
-            exec_interactive_wait(
-                "mybox", user, ["bash"], 1000, 1000, as_root=False,
-                extra_env={"FOO": "bar"}
-            )
+            exec_interactive_wait("mybox", user, ["bash"], 1000, 1000, as_root=False, extra_env={"FOO": "bar"})
 
         argv = mock_run.call_args[0][0]
         assert "FOO=bar" in argv
@@ -408,10 +401,7 @@ class TestExecInteractiveWait:
         user = _make_user()
         with patch("lxcme.instances.subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(returncode=0)
-            exec_interactive_wait(
-                "mybox", user, ["bash"], 1000, 1000, as_root=False,
-                cwd="/custom/path"
-            )
+            exec_interactive_wait("mybox", user, ["bash"], 1000, 1000, as_root=False, cwd="/custom/path")
 
         argv = mock_run.call_args[0][0]
         idx = argv.index("--cwd")
@@ -421,9 +411,7 @@ class TestExecInteractiveWait:
         user = _make_user()
         with patch("lxcme.instances.subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(returncode=0)
-            exec_interactive_wait(
-                "mybox", user, ["bash"], 1000, 1000, as_root=True
-            )
+            exec_interactive_wait("mybox", user, ["bash"], 1000, 1000, as_root=True)
 
         argv = mock_run.call_args[0][0]
         assert "--user" not in argv
