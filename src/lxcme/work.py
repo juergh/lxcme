@@ -5,16 +5,33 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
-import subprocess
 import sys
 from pathlib import Path
 
 import click
 import pylxd
 
-from lxcme.users import get_tracked_mounts, sync_mounts
+from lxcme.images import ensure_image
+from lxcme.instances import (
+    create_instance,
+    ensure_running,
+    exec_interactive_wait,
+    find_instance,
+)
+from lxcme.target import get_target_info
+from lxcme.users import (
+    User,
+    get_current_user,
+    get_instance_user_ids,
+    get_tracked_mounts,
+    is_setup_done,
+    setup_instance_user,
+    sync_mounts,
+)
 
 WORK_CONFIG_PREFIX = "user.lxcme.work."
+
+logger = logging.getLogger(__name__)
 
 
 def _configure_logging() -> None:
@@ -57,6 +74,40 @@ def decrement_refcount(instance: pylxd.models.Instance, work_hash: str) -> int:
     return count
 
 
+def _create_and_setup_instance(
+    client: pylxd.Client,
+    instance_name: str,
+    user: User,
+    home_mount: str,
+) -> pylxd.models.Instance | None:
+    """Create a new instance with home mount, prompting for confirmation.
+
+    Returns the instance if created, or None if user aborted.
+    """
+    target = get_target_info(None, None, None)
+    initial_mounts = [(str(home_mount), str(Path.home()))]
+    mount_summary = ", ".join(f"{h}:{i}" for h, i in initial_mounts)
+
+    click.echo(
+        f"Instance '{instance_name}' does not exist.\n"
+        f"  Image  : {target.image_alias}\n"
+        f"  Distro : {target.distro} {target.release} ({target.arch})\n"
+        f"  User   : {user.username} (uid={user.uid}, gid={user.gid})\n"
+        f"  Mounts : {mount_summary}"
+    )
+    if not click.confirm("Launch new instance?", default=False):
+        click.echo("Aborted.")
+        return None
+
+    image = ensure_image(client, target.distro, target.release, target.image_alias)
+    instance = create_instance(client, instance_name, image)
+    setup_instance_user(instance, user)
+    sync_mounts(instance, initial_mounts)
+    ensure_running(instance)
+
+    return instance
+
+
 @click.command()
 @click.option(
     "--home",
@@ -71,46 +122,72 @@ def main(home_dir: Path | None, instance_name: str) -> None:
     _configure_logging()
 
     home_mount = home_dir if home_dir is not None else Path.home()
-
     cwd = os.getcwd()
+
+    cwd_resolved = os.path.realpath(cwd)
+    home_resolved = os.path.realpath(home_mount)
+    same_path = cwd_resolved == home_resolved
+
     work_hash = compute_work_hash(cwd)
     work_path = f"/work-{work_hash}"
 
     client = pylxd.Client()
+    user = get_current_user()
 
-    try:
-        instance = client.instances.get(instance_name)
-        instance.sync()
-        increment_refcount(instance, work_hash)
-    except pylxd.exceptions.NotFound:
-        result = subprocess.run(
-            ["lxcme", instance_name, "--mount", f"{home_mount}:{Path.home()}", "--", "true"]
-        )
-        if result.returncode != 0:
-            sys.exit(result.returncode)
-        try:
-            instance = client.instances.get(instance_name)
-        except pylxd.exceptions.NotFound:
+    instance = find_instance(client, instance_name)
+    is_new = instance is None
+
+    if is_new:
+        instance = _create_and_setup_instance(client, instance_name, user, home_resolved)
+        if instance is None:
             sys.exit(0)
+        if not same_path:
+            set_refcount(instance, work_hash, 1)
+    else:
+        assert instance is not None
         instance.sync()
-        set_refcount(instance, work_hash, 1)
+        if not is_setup_done(instance):
+            setup_instance_user(instance, user)
+        if not same_path:
+            increment_refcount(instance, work_hash)
 
-    cmd = [
-        "lxcme", instance_name, "--wait",
-        "--mount", f"add:{cwd}:{work_path}",
-        "--cwd", work_path,
-    ]
+    assert instance is not None
+
+    ensure_running(instance)
+
+    if not same_path:
+        current = get_tracked_mounts(instance)
+        if not any(h == cwd for h, _ in current):
+            desired = current + [(cwd, work_path)]
+            sync_mounts(instance, desired)
+
+    instance_uid, instance_gid = get_instance_user_ids(instance)
+    effective_cwd = str(Path.home()) if same_path else work_path
+
+    target = get_target_info(None, None, None)
+    extra_env: dict[str, str] = {}
+    if target.distro in ("debian", "ubuntu"):
+        extra_env["debian_chroot"] = "lxc"
 
     exit_code = 0
     try:
-        result = subprocess.run(cmd)
-        exit_code = result.returncode
+        exit_code = exec_interactive_wait(
+            instance_name,
+            user,
+            ["bash", "--login"],
+            instance_uid,
+            instance_gid,
+            as_root=False,
+            extra_env=extra_env,
+            cwd=effective_cwd,
+        )
     finally:
-        instance.sync()
-        final_count = decrement_refcount(instance, work_hash)
-        if final_count <= 0:
-            current_mounts = get_tracked_mounts(instance)
-            new_mounts = [(h, i) for h, i in current_mounts if h != cwd]
-            sync_mounts(instance, new_mounts)
+        if not same_path:
+            instance.sync()
+            final_count = decrement_refcount(instance, work_hash)
+            if final_count <= 0:
+                current_mounts = get_tracked_mounts(instance)
+                new_mounts = [(h, i) for h, i in current_mounts if h != cwd]
+                sync_mounts(instance, new_mounts)
 
     sys.exit(exit_code)
