@@ -9,7 +9,7 @@ import pylxd
 logger = logging.getLogger(__name__)
 
 UBUNTU_REMOTE = "https://cloud-images.ubuntu.com/daily"
-DEFAULT_REMOTE = "https://images.linuxcontainers.org"
+DEFAULT_REMOTE = "https://images.lxd.canonical.com"
 
 
 def get_remote(distro: str) -> str:
