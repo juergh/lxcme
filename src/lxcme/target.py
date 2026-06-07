@@ -33,9 +33,7 @@ class TargetInfo:
 
     @property
     def image_alias(self) -> str:
-        """Image alias (release-arch for Ubuntu/Debian, else distro-release-arch)."""
-        if self.distro in ("ubuntu", "debian"):
-            return f"{self.release}-{self.arch}"
+        """Image alias (distro-release-arch for all distros)."""
         return f"{self.distro}-{self.release}-{self.arch}"
 
 
