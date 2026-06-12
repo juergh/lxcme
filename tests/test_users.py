@@ -13,6 +13,7 @@ from lxcme.users import (
     MOUNT_KEY_PREFIX,
     SETUP_DONE_KEY,
     User,
+    _sudoers_filename,
     configure_idmap,
     ensure_group,
     ensure_user,
@@ -234,6 +235,16 @@ class TestGetTrackedMounts:
 
         with pytest.raises(RuntimeError, match="Failed to create home directory"):
             setup_home_directory(instance, _make_user(), 1000, 1000)
+
+
+class TestSudoersFilename:
+    def test_plain_username_unchanged(self) -> None:
+        assert _sudoers_filename("alice") == "alice"
+
+    def test_corporate_username_sanitized(self) -> None:
+        # sudo ignores files in /etc/sudoers.d containing '.', so the dots in
+        # first.last@domain.com must be replaced for the file to be read.
+        assert _sudoers_filename("first.last@domain.com") == "first_last@domain_com"
 
 
 class TestSetupPasswordlessSudo:

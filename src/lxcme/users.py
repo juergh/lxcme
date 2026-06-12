@@ -132,7 +132,7 @@ def configure_idmap(
 
 def _mount_device_name(host_path: str) -> str:
     """Derive a stable LXD device name from a host path."""
-    return host_path.strip("/").replace("/", "_") or "root"
+    return host_path.strip("/").replace("/", "_").replace("@", "_") or "root"
 
 
 def get_tracked_mounts(instance: pylxd.models.Instance) -> list[tuple[str, str]]:
@@ -205,10 +205,18 @@ def setup_home_directory(
     logger.info("Created home directory '%s' inside instance.", home_str)
 
 
+def _sudoers_filename(username: str) -> str:
+    """Derive a valid /etc/sudoers.d filename from a username.
+
+    sudo ignores files whose names contain a '.', so replace dots with '_'.
+    """
+    return username.replace(".", "_")
+
+
 def setup_passwordless_sudo(instance: pylxd.models.Instance, username: str) -> None:
     """Configure passwordless sudo for user inside instance."""
     sudoers_entry = f"{username} ALL=(ALL) NOPASSWD:ALL\n"
-    sudoers_path = f"/etc/sudoers.d/{username}"
+    sudoers_path = f"/etc/sudoers.d/{_sudoers_filename(username)}"
 
     rc, _, stderr = _exec_in(
         instance,
