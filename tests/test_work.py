@@ -386,11 +386,12 @@ class TestMain:
         target = _make_mock_target()
 
         mock_sync_mounts = MagicMock(return_value=True)
+        home_mount = (str(tmp_path), str(tmp_path))
 
         with (
             patch("lxcme.work.Path.home", return_value=tmp_path),
             patch("lxcme.work.os.getcwd", return_value="/test/path"),
-            patch("lxcme.work.os.path.realpath", side_effect=lambda p: p),
+            patch("lxcme.work.os.path.realpath", side_effect=lambda p: str(p)),
             patch("lxcme.work.pylxd.Client") as mock_client_class,
             patch("lxcme.work.find_instance", return_value=instance),
             patch("lxcme.work.get_current_user", return_value=user),
@@ -400,14 +401,14 @@ class TestMain:
             patch("lxcme.work.sync_mounts", mock_sync_mounts),
             patch("lxcme.work.get_instance_user_ids", return_value=(1000, 1000)),
             patch("lxcme.work.exec_interactive_wait", return_value=0),
-            patch("lxcme.work.get_tracked_mounts", return_value=[("/test/path", work_path)]),
+            patch("lxcme.work.get_tracked_mounts", return_value=[home_mount, ("/test/path", work_path)]),
         ):
             mock_client_class.return_value = MagicMock()
             runner.invoke(main, ["my-instance"])
 
         assert mock_sync_mounts.call_count == 1
         final_call = mock_sync_mounts.call_args_list[-1]
-        assert final_call[0][1] == []
+        assert final_call[0][1] == [home_mount]
 
     def test_no_unmount_when_refcount_positive(self, tmp_path: Path) -> None:
         runner = CliRunner()
@@ -423,7 +424,7 @@ class TestMain:
         with (
             patch("lxcme.work.Path.home", return_value=tmp_path),
             patch("lxcme.work.os.getcwd", return_value="/test/path"),
-            patch("lxcme.work.os.path.realpath", side_effect=lambda p: p),
+            patch("lxcme.work.os.path.realpath", side_effect=lambda p: str(p)),
             patch("lxcme.work.pylxd.Client") as mock_client_class,
             patch("lxcme.work.find_instance", return_value=instance),
             patch("lxcme.work.get_current_user", return_value=user),
@@ -433,7 +434,10 @@ class TestMain:
             patch("lxcme.work.sync_mounts", mock_sync_mounts),
             patch("lxcme.work.get_instance_user_ids", return_value=(1000, 1000)),
             patch("lxcme.work.exec_interactive_wait", return_value=0),
-            patch("lxcme.work.get_tracked_mounts", return_value=[("/test/path", work_path)]),
+            patch(
+                "lxcme.work.get_tracked_mounts",
+                return_value=[(str(tmp_path), str(tmp_path)), ("/test/path", work_path)],
+            ),
         ):
             mock_client_class.return_value = MagicMock()
             runner.invoke(main, ["my-instance"])
@@ -450,11 +454,12 @@ class TestMain:
         target = _make_mock_target()
 
         mock_sync_mounts = MagicMock(return_value=True)
+        home_mount = (str(tmp_path), str(tmp_path))
 
         with (
             patch("lxcme.work.Path.home", return_value=tmp_path),
             patch("lxcme.work.os.getcwd", return_value="/test/path"),
-            patch("lxcme.work.os.path.realpath", side_effect=lambda p: p),
+            patch("lxcme.work.os.path.realpath", side_effect=lambda p: str(p)),
             patch("lxcme.work.pylxd.Client") as mock_client_class,
             patch("lxcme.work.find_instance", return_value=instance),
             patch("lxcme.work.get_current_user", return_value=user),
@@ -464,14 +469,14 @@ class TestMain:
             patch("lxcme.work.sync_mounts", mock_sync_mounts),
             patch("lxcme.work.get_instance_user_ids", return_value=(1000, 1000)),
             patch("lxcme.work.exec_interactive_wait", return_value=42),
-            patch("lxcme.work.get_tracked_mounts", return_value=[("/test/path", work_path)]),
+            patch("lxcme.work.get_tracked_mounts", return_value=[home_mount, ("/test/path", work_path)]),
         ):
             mock_client_class.return_value = MagicMock()
             result = runner.invoke(main, ["my-instance"])
 
         assert mock_sync_mounts.call_count == 1
         final_call = mock_sync_mounts.call_args_list[-1]
-        assert final_call[0][1] == []
+        assert final_call[0][1] == [home_mount]
         assert result.exit_code == 42
 
     def test_calls_exec_interactive_wait_with_correct_args(self, tmp_path: Path) -> None:
@@ -546,7 +551,7 @@ class TestMain:
             patch("lxcme.work.sync_mounts", mock_sync_mounts),
             patch("lxcme.work.get_instance_user_ids", return_value=(1000, 1000)),
             patch("lxcme.work.exec_interactive_wait", mock_exec),
-            patch("lxcme.work.get_tracked_mounts", return_value=[]),
+            patch("lxcme.work.get_tracked_mounts", return_value=[(str(tmp_path), str(tmp_path))]),
         ):
             mock_client_class.return_value = MagicMock()
             runner.invoke(main, ["my-instance"])
@@ -575,7 +580,7 @@ class TestMain:
             patch("lxcme.work.sync_mounts", return_value=True),
             patch("lxcme.work.get_instance_user_ids", return_value=(1000, 1000)),
             patch("lxcme.work.exec_interactive_wait", mock_exec),
-            patch("lxcme.work.get_tracked_mounts", return_value=[]),
+            patch("lxcme.work.get_tracked_mounts", return_value=[(str(tmp_path), str(tmp_path))]),
         ):
             mock_client_class.return_value = MagicMock()
             runner.invoke(main, ["my-instance"])
@@ -604,7 +609,7 @@ class TestMain:
             patch("lxcme.work.sync_mounts", return_value=True),
             patch("lxcme.work.get_instance_user_ids", return_value=(1000, 1000)),
             patch("lxcme.work.exec_interactive_wait", return_value=0),
-            patch("lxcme.work.get_tracked_mounts", return_value=[]),
+            patch("lxcme.work.get_tracked_mounts", return_value=[(str(tmp_path), str(tmp_path))]),
         ):
             mock_client_class.return_value = MagicMock()
             runner.invoke(main, ["my-instance"])
@@ -644,7 +649,7 @@ class TestMain:
             patch("lxcme.work.sync_mounts", mock_sync_mounts),
             patch("lxcme.work.get_instance_user_ids", return_value=(1000, 1000)),
             patch("lxcme.work.exec_interactive_wait", mock_exec),
-            patch("lxcme.work.get_tracked_mounts", return_value=[]),
+            patch("lxcme.work.get_tracked_mounts", return_value=[(str(real_path), str(real_path))]),
         ):
             mock_client_class.return_value = MagicMock()
             runner.invoke(main, ["my-instance"])
@@ -711,3 +716,80 @@ class TestMain:
             runner.invoke(main, ["my-instance"])
 
         mock_setup.assert_called_once_with(instance, user)
+
+    def test_ensures_home_mount_for_existing_instance(self, tmp_path: Path) -> None:
+        runner = CliRunner()
+
+        instance = _make_mock_instance()
+        user = _make_mock_user(tmp_path)
+        target = _make_mock_target()
+
+        mock_sync_mounts = MagicMock(return_value=True)
+        captured_mounts: list[list[tuple[str, str]]] = []
+
+        def capture_sync_mounts(inst: MagicMock, mounts: list[tuple[str, str]]) -> bool:
+            captured_mounts.append(list(mounts))
+            return True
+
+        mock_sync_mounts.side_effect = capture_sync_mounts
+
+        with (
+            patch("lxcme.work.Path.home", return_value=tmp_path),
+            patch("lxcme.work.os.getcwd", return_value=str(tmp_path)),
+            patch("lxcme.work.os.path.realpath", side_effect=lambda p: str(p)),
+            patch("lxcme.work.pylxd.Client") as mock_client_class,
+            patch("lxcme.work.find_instance", return_value=instance),
+            patch("lxcme.work.get_current_user", return_value=user),
+            patch("lxcme.work.get_target_info", return_value=target),
+            patch("lxcme.work.is_setup_done", return_value=True),
+            patch("lxcme.work.ensure_running"),
+            patch("lxcme.work.sync_mounts", mock_sync_mounts),
+            patch("lxcme.work.get_instance_user_ids", return_value=(1000, 1000)),
+            patch("lxcme.work.exec_interactive_wait", return_value=0),
+            patch("lxcme.work.get_tracked_mounts", return_value=[]),
+        ):
+            mock_client_class.return_value = MagicMock()
+            runner.invoke(main, ["my-instance"])
+
+        assert len(captured_mounts) == 1
+        assert (str(tmp_path), str(tmp_path)) in captured_mounts[0]
+
+    def test_ensures_home_mount_with_work_path(self, tmp_path: Path) -> None:
+        runner = CliRunner()
+
+        work_hash = compute_work_hash("/test/path")
+        work_path = f"/work-{work_hash}"
+        instance = _make_mock_instance()
+        user = _make_mock_user(tmp_path)
+        target = _make_mock_target()
+
+        mock_sync_mounts = MagicMock(return_value=True)
+        captured_mounts: list[list[tuple[str, str]]] = []
+
+        def capture_sync_mounts(inst: MagicMock, mounts: list[tuple[str, str]]) -> bool:
+            captured_mounts.append(list(mounts))
+            return True
+
+        mock_sync_mounts.side_effect = capture_sync_mounts
+
+        with (
+            patch("lxcme.work.Path.home", return_value=tmp_path),
+            patch("lxcme.work.os.getcwd", return_value="/test/path"),
+            patch("lxcme.work.os.path.realpath", side_effect=lambda p: str(p)),
+            patch("lxcme.work.pylxd.Client") as mock_client_class,
+            patch("lxcme.work.find_instance", return_value=instance),
+            patch("lxcme.work.get_current_user", return_value=user),
+            patch("lxcme.work.get_target_info", return_value=target),
+            patch("lxcme.work.is_setup_done", return_value=True),
+            patch("lxcme.work.ensure_running"),
+            patch("lxcme.work.sync_mounts", mock_sync_mounts),
+            patch("lxcme.work.get_instance_user_ids", return_value=(1000, 1000)),
+            patch("lxcme.work.exec_interactive_wait", return_value=0),
+            patch("lxcme.work.get_tracked_mounts", return_value=[]),
+        ):
+            mock_client_class.return_value = MagicMock()
+            runner.invoke(main, ["my-instance"])
+
+        assert len(captured_mounts) >= 1
+        assert (str(tmp_path), str(tmp_path)) in captured_mounts[0]
+        assert ("/test/path", work_path) in captured_mounts[0]
