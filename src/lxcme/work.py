@@ -155,11 +155,22 @@ def main(home_dir: Path | None, instance_name: str) -> None:
 
     ensure_running(instance)
 
-    if not same_path:
-        current = get_tracked_mounts(instance)
-        if not any(h == cwd for h, _ in current):
-            desired = current + [(cwd, work_path)]
-            sync_mounts(instance, desired)
+    current = get_tracked_mounts(instance)
+    desired = list(current)
+    changed = False
+
+    if not any(h == home_resolved for h, _ in desired):
+        home_instance_path = str(Path.home())
+        desired.append((home_resolved, home_instance_path))
+        changed = True
+        logger.info("Re-adding missing home mount: %s -> %s", home_resolved, home_instance_path)
+
+    if not same_path and not any(h == cwd for h, _ in desired):
+        desired.append((cwd, work_path))
+        changed = True
+
+    if changed:
+        sync_mounts(instance, desired)
 
     instance_uid, instance_gid = get_instance_user_ids(instance)
     effective_cwd = str(Path.home()) if same_path else work_path
