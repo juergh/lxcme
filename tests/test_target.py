@@ -149,11 +149,11 @@ class TestTargetInfo:
 
     def test_image_alias_ubuntu_omits_distro(self) -> None:
         target = TargetInfo(distro="ubuntu", release="noble", arch="amd64", host_distro="ubuntu")
-        assert target.image_alias == "noble-amd64"
+        assert target.image_alias == "ubuntu-noble-amd64"
 
     def test_image_alias_debian_omits_distro(self) -> None:
         target = TargetInfo(distro="debian", release="bookworm", arch="arm64", host_distro="ubuntu")
-        assert target.image_alias == "bookworm-arm64"
+        assert target.image_alias == "debian-bookworm-arm64"
 
     def test_image_alias_other_distro_includes_distro(self) -> None:
         target = TargetInfo(distro="fedora", release="40", arch="amd64", host_distro="ubuntu")
