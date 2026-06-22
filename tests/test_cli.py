@@ -126,7 +126,7 @@ class TestResolveMounts:
         assert _resolve_mounts(ops, current) == [("/foo", "/foo")]
 
     def test_add_then_del_same_path_results_in_absent(self) -> None:
-        current = []
+        current: list[tuple[str, str]] = []
         ops = [MountOp("add", "/foo", "/foo"), MountOp("del", "/foo", "")]
         assert _resolve_mounts(ops, current) == []
 
