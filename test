@@ -1,0 +1,4 @@
+#!/bin/bash
+
+echo "II: pytest"
+uv run pytest
