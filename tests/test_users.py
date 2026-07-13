@@ -8,9 +8,9 @@ from unittest.mock import MagicMock
 import pytest
 
 from lxcme.users import (
+    DEVICE_PREFIX,
     INSTANCE_GID_KEY,
     INSTANCE_UID_KEY,
-    MOUNT_KEY_PREFIX,
     SETUP_DONE_KEY,
     User,
     _sudoers_filename,
@@ -132,28 +132,30 @@ class TestSyncMounts:
         changed = sync_mounts(instance, [("/host/foo", "/inst/foo")])
 
         assert changed is True
-        assert instance.devices["host_foo"]["source"] == "/host/foo"
-        assert instance.devices["host_foo"]["path"] == "/inst/foo"
-        assert instance.config[MOUNT_KEY_PREFIX + "host_foo"] == "/host/foo:/inst/foo"
+        assert instance.devices[f"{DEVICE_PREFIX}inst_foo"]["source"] == "/host/foo"
+        assert instance.devices[f"{DEVICE_PREFIX}inst_foo"]["path"] == "/inst/foo"
         instance.save.assert_called_once_with(wait=True)
         instance.sync.assert_called_once()
 
     def test_removes_stale_mounts(self) -> None:
         instance = MagicMock()
-        instance.config = {MOUNT_KEY_PREFIX + "host_old": "/host/old:/inst/old"}
-        instance.devices = {"host_old": {"type": "disk", "source": "/host/old", "path": "/inst/old"}}
+        instance.config = {}
+        instance.devices = {
+            f"{DEVICE_PREFIX}inst_old": {"type": "disk", "source": "/host/old", "path": "/inst/old"},
+        }
 
         changed = sync_mounts(instance, [])
 
         assert changed is True
-        assert "host_old" not in instance.devices
-        assert MOUNT_KEY_PREFIX + "host_old" not in instance.config
+        assert f"{DEVICE_PREFIX}inst_old" not in instance.devices
         instance.sync.assert_called_once()
 
     def test_no_change_returns_false(self) -> None:
         instance = MagicMock()
-        instance.config = {MOUNT_KEY_PREFIX + "home_alice": "/home/alice:/home/alice"}
-        instance.devices = {}
+        instance.config = {}
+        instance.devices = {
+            f"{DEVICE_PREFIX}home_alice": {"type": "disk", "source": "/home/alice", "path": "/home/alice"},
+        }
 
         changed = sync_mounts(instance, [("/home/alice", "/home/alice")])
 
@@ -168,42 +170,48 @@ class TestSyncMounts:
 
         sync_mounts(instance, [("/home/alice", "/home/alice")])
 
-        device = instance.devices["home_alice"]
+        device = instance.devices[f"{DEVICE_PREFIX}home_alice"]
         assert device["source"] == "/home/alice"
         assert device["path"] == "/home/alice"
 
     def test_replaces_changed_mount(self) -> None:
         instance = MagicMock()
-        instance.config = {MOUNT_KEY_PREFIX + "host_foo": "/host/foo:/old/path"}
-        instance.devices = {"host_foo": {"type": "disk", "source": "/host/foo", "path": "/old/path"}}
+        instance.config = {}
+        instance.devices = {
+            f"{DEVICE_PREFIX}old_path": {"type": "disk", "source": "/host/foo", "path": "/old/path"},
+        }
 
         changed = sync_mounts(instance, [("/host/foo", "/new/path")])
 
         assert changed is True
-        assert instance.devices["host_foo"]["path"] == "/new/path"
+        assert f"{DEVICE_PREFIX}old_path" not in instance.devices
+        assert instance.devices[f"{DEVICE_PREFIX}new_path"]["source"] == "/host/foo"
+        assert instance.devices[f"{DEVICE_PREFIX}new_path"]["path"] == "/new/path"
         instance.sync.assert_called_once()
 
     def test_does_not_update_unchanged_mounts(self) -> None:
         instance = MagicMock()
-        instance.config = {MOUNT_KEY_PREFIX + "home_alice": "/home/alice:/home/alice"}
-        instance.devices = {"home_alice": {"type": "disk", "source": "/home/alice", "path": "/home/alice"}}
+        instance.config = {}
+        instance.devices = {
+            f"{DEVICE_PREFIX}home_alice": {"type": "disk", "source": "/home/alice", "path": "/home/alice"},
+        }
 
         sync_mounts(instance, [("/home/alice", "/home/alice"), ("/host/new", "/inst/new")])
 
-        assert instance.devices["home_alice"] == {
+        assert instance.devices[f"{DEVICE_PREFIX}home_alice"] == {
             "type": "disk",
             "source": "/home/alice",
             "path": "/home/alice",
         }
-        assert instance.devices["host_new"]["source"] == "/host/new"
+        assert instance.devices[f"{DEVICE_PREFIX}inst_new"]["source"] == "/host/new"
 
 
 class TestGetTrackedMounts:
     def test_returns_tracked_mounts(self) -> None:
         instance = MagicMock()
-        instance.config = {
-            MOUNT_KEY_PREFIX + "home_alice": "/home/alice:/home/alice",
-            MOUNT_KEY_PREFIX + "host_data": "/host/data:/mnt/data",
+        instance.devices = {
+            f"{DEVICE_PREFIX}home_alice": {"type": "disk", "source": "/home/alice", "path": "/home/alice"},
+            f"{DEVICE_PREFIX}mnt_data": {"type": "disk", "source": "/host/data", "path": "/mnt/data"},
         }
 
         mounts = get_tracked_mounts(instance)
@@ -214,9 +222,21 @@ class TestGetTrackedMounts:
 
     def test_returns_empty_when_no_mounts_tracked(self) -> None:
         instance = MagicMock()
-        instance.config = {}
+        instance.devices = {}
 
         assert get_tracked_mounts(instance) == []
+
+    def test_ignores_non_lxcme_devices(self) -> None:
+        instance = MagicMock()
+        instance.devices = {
+            "root": {"type": "disk", "source": "/", "path": "/"},
+            f"{DEVICE_PREFIX}data": {"type": "disk", "source": "/data", "path": "/data"},
+        }
+
+        mounts = get_tracked_mounts(instance)
+
+        assert len(mounts) == 1
+        assert ("/data", "/data") in mounts
 
 
 class TestSudoersFilename:

@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 SETUP_DONE_KEY = "user.lxcme.setup-done"
 INSTANCE_UID_KEY = "user.lxcme.uid"
 INSTANCE_GID_KEY = "user.lxcme.gid"
-MOUNT_KEY_PREFIX = "user.lxcme.mount."
+DEVICE_PREFIX = "lxcme_"
 
 
 @dataclass(frozen=True)
@@ -130,56 +130,50 @@ def configure_idmap(
     logger.info("Configured raw.idmap: %s", idmap.replace("\n", " | "))
 
 
-def _mount_device_name(host_path: str) -> str:
-    """Derive a stable LXD device name from a host path."""
-    return host_path.strip("/").replace("/", "_").replace("@", "_") or "root"
+def _mount_device_name(instance_path: str) -> str:
+    """Derive a stable LXD device name from an instance path."""
+    slug = instance_path.strip("/").replace("/", "_").replace("@", "_") or "root"
+    return f"{DEVICE_PREFIX}{slug}"
 
 
 def get_tracked_mounts(instance: pylxd.models.Instance) -> list[tuple[str, str]]:
     """Return currently tracked mounts as (host_path, instance_path) pairs."""
     mounts = []
-    for key, val in instance.config.items():
-        if key.startswith(MOUNT_KEY_PREFIX):
-            host_path, _, instance_path = val.partition(":")
-            mounts.append((host_path, instance_path))
+    for name, dev in instance.devices.items():
+        if name.startswith(DEVICE_PREFIX) and dev.get("type") == "disk":
+            mounts.append((dev["source"], dev["path"]))
     return mounts
 
 
 def sync_mounts(instance: pylxd.models.Instance, mounts: list[tuple[str, str]]) -> bool:
     """Reconcile instance disk devices against desired mounts.
 
-    Each mount is a (host_path, instance_path) pair. Tracked via
-    user.lxcme.mount.<device> config keys. Returns True if any change was made.
+    Each mount is a (host_path, instance_path) pair. Devices are identified
+    by the lxcme_ prefix. Returns True if any change was made.
     """
     desired: dict[str, tuple[str, str]] = {
-        _mount_device_name(host_path): (host_path, instance_path) for host_path, instance_path in mounts
+        _mount_device_name(instance_path): (host_path, instance_path) for host_path, instance_path in mounts
     }
 
-    current: dict[str, tuple[str, str]] = {}
-    for key, val in instance.config.items():
-        if key.startswith(MOUNT_KEY_PREFIX):
-            device = key[len(MOUNT_KEY_PREFIX) :]
-            host_path, _, instance_path = val.partition(":")
-            current[device] = (host_path, instance_path)
+    current: dict[str, tuple[str, str]] = {
+        name: (dev["source"], dev["path"])
+        for name, dev in instance.devices.items()
+        if name.startswith(DEVICE_PREFIX) and dev.get("type") == "disk"
+    }
 
     if desired == current:
         return False
 
-    # Remove stale devices and config keys
-    for device in current:
-        if device not in desired:
-            host_path, instance_path = current[device]
-            instance.devices.pop(device, None)
-            instance.config.pop(MOUNT_KEY_PREFIX + device, None)
-            logger.info("Detached '%s' -> '%s' (device '%s').", host_path, instance_path, device)
+    for name in current:
+        if name not in desired:
+            instance.devices.pop(name, None)
+            logger.info("Detached device '%s'.", name)
 
-    # Add or update devices
-    for device, (host_path, instance_path) in desired.items():
-        if current.get(device) == (host_path, instance_path):
+    for name, (host_path, instance_path) in desired.items():
+        if current.get(name) == (host_path, instance_path):
             continue
-        instance.devices[device] = {"type": "disk", "source": host_path, "path": instance_path}
-        instance.config[MOUNT_KEY_PREFIX + device] = f"{host_path}:{instance_path}"
-        logger.info("Attached '%s' -> '%s' as device '%s'.", host_path, instance_path, device)
+        instance.devices[name] = {"type": "disk", "source": host_path, "path": instance_path}
+        logger.info("Attached '%s' -> '%s' as '%s'.", host_path, instance_path, name)
 
     instance.save(wait=True)
     instance.sync()

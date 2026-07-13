@@ -38,7 +38,8 @@ lxcme [options] [instance_name] [[--] command [args...]]
 | `--release RELEASE` | Override host release name |
 | `--arch ARCH` | Override host architecture |
 | `--root` | Run command as root inside the instance |
-| `--mount MOUNT_SPEC` | Modify instance mounts. Repeatable, applied left-to-right. See [Mounts](#mounts) for all forms. |
+| `--mount HOST[:INST]` | Add a directory mount. Repeatable. If `INST` is omitted, `HOST` is used as the instance path. |
+| `--clear-mounts` | Remove all existing mounts before adding new ones. |
 | `--env KEY=VALUE` | Set an environment variable inside the instance. Repeatable. |
 | `--cwd PATH` | Set the working directory inside the instance (default: user home dir; `/` when `--root` is used without `--cwd`). |
 | `--wait` | Wait for interactive session to exit instead of replacing process. Useful for wrapper scripts. |
@@ -59,29 +60,20 @@ lxcme my-box -- python3 script.py
 # Run as root
 lxcme --root -- apt update
 
-# Replace all mounts with /home/alice (plain path = replace)
+# Add /home/alice mount
 lxcme --mount /home/alice
 
 # Mount a project directory at a custom path inside the instance
 lxcme --mount /host/projects:/work
 
-# Replace all mounts with two directories
+# Add multiple mounts
 lxcme --mount /home/alice --mount /data:/mnt/data
 
-# Add /data to existing mounts without touching the rest
-lxcme --mount add:/data
-
-# Remove a specific mount
-lxcme --mount del:/data
-
 # Remove all mounts
-lxcme --mount del:
+lxcme --clear-mounts
 
-# Clear all mounts then add /foo (equivalent to: lxcme --mount /foo)
-lxcme --mount del: --mount add:/foo
-
-# Mix: remove /old, add /new
-lxcme --mount del:/old --mount add:/new
+# Replace all mounts with /data
+lxcme --clear-mounts --mount /data
 
 # Use a specific distro/release
 lxcme --distro debian --release bookworm
@@ -128,36 +120,27 @@ Setup runs exactly once and is idempotent — tracked via the `user.lxcme.setup-
 
 ### Mounts
 
-Directory mounts are managed via `--mount MOUNT_SPEC`. The `--mount` option is repeatable and operations are applied **left-to-right** against the current tracked mounts. If no `--mount` args are given, existing mounts are left unchanged.
+Directory mounts are managed via `--mount HOST[:INST]`. The `--mount` option is repeatable and always **additive** — each invocation adds a mount if it is not already present. If a mount is already tracked, a warning is printed and no duplicate is created.
 
-**Supported forms:**
+Use `--clear-mounts` to remove all existing mounts before applying any `--mount` flags.
 
-| Form | Meaning |
-|---|---|
-| `/host[:/inst]` | Replace: clear all existing mounts, then add this one |
-| `add:/host[:/inst]` | Append this mount if not already present |
-| `del:/host` | Remove the mount with this host path (warns if not found) |
-| `del:` | Remove all mounts |
-
-If `inst` is omitted, `host` is used as the path inside the instance. Multiple `--mount` arguments can be combined freely:
+If `INST` is omitted, `HOST` is used as the path inside the instance.
 
 ```bash
-# Replace all mounts with /foo
+# Add /foo mount
 lxcme --mount /foo
 
-# Add /bar to existing mounts without disturbing anything else
-lxcme --mount add:/bar
+# Add /bar with a custom instance path
+lxcme --mount /bar:/opt/bar
 
-# Remove /old, add /new
-lxcme --mount del:/old --mount add:/new
+# Replace all mounts with /foo
+lxcme --clear-mounts --mount /foo
 
-# Clear everything then add /foo (same as: lxcme --mount /foo)
-lxcme --mount del: --mount add:/foo
+# Remove all mounts
+lxcme --clear-mounts
 ```
 
-Operations apply left-to-right, so `--mount del:/foo --mount add:/foo` results in `/foo` being present (del then re-add), while `--mount add:/foo --mount del:/foo` results in `/foo` being absent.
-
-When the resolved mount set differs from the current tracked mounts, you are prompted to confirm before the instance is restarted to apply the new device config.
+Mounts are tracked as LXD disk devices with a `lxcme_` prefix (derived from the instance path). This means existing mounts are discoverable via standard `lxc config device show` output.
 
 ### Command execution
 

@@ -5,10 +5,9 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
 from click.testing import CliRunner
 
-from lxcme.cli import MountOp, _parse_mount_ops, _resolve_mounts, main
+from lxcme.cli import _parse_mount, main
 from lxcme.target import TargetInfo
 from lxcme.users import User
 
@@ -39,101 +38,19 @@ def _make_instance(name: str = "noble-amd64", running: bool = True, setup_done: 
     return inst
 
 
-class TestParseMountOps:
-    def test_plain_path_emits_del_all_and_add(self) -> None:
-        ops = _parse_mount_ops("/foo")
-        assert ops[0] == MountOp("del_all", "", "")
-        assert ops[1].kind == "add"
-        assert ops[1].instance_path == ops[1].host_path
+class TestParseMount:
+    def test_plain_path_uses_host_as_instance_path(self) -> None:
+        host, inst = _parse_mount("/foo")
+        assert inst == host
 
-    def test_plain_path_with_instance_path(self) -> None:
-        ops = _parse_mount_ops("/foo:/bar")
-        assert ops[0] == MountOp("del_all", "", "")
-        assert ops[1].kind == "add"
-        assert ops[1].instance_path == "/bar"
+    def test_explicit_instance_path(self) -> None:
+        host, inst = _parse_mount("/foo:/bar")
+        assert inst == "/bar"
 
-    def test_add_prefix(self) -> None:
-        ops = _parse_mount_ops("add:/foo")
-        assert len(ops) == 1
-        assert ops[0].kind == "add"
-        assert ops[0].instance_path == ops[0].host_path
-
-    def test_add_prefix_with_instance_path(self) -> None:
-        ops = _parse_mount_ops("add:/foo:/bar")
-        assert len(ops) == 1
-        assert ops[0].kind == "add"
-        assert ops[0].instance_path == "/bar"
-
-    def test_del_all(self) -> None:
-        ops = _parse_mount_ops("del:")
-        assert ops == [MountOp("del_all", "", "")]
-
-    def test_del_specific_path(self) -> None:
-        ops = _parse_mount_ops("del:/foo")
-        assert len(ops) == 1
-        assert ops[0].kind == "del"
-        assert ops[0].instance_path == ""
-
-
-class TestResolveMounts:
-    def test_empty_ops_returns_current(self) -> None:
-        current = [("/foo", "/foo")]
-        assert _resolve_mounts([], current) == current
-
-    def test_del_all_clears(self) -> None:
-        current = [("/foo", "/foo"), ("/bar", "/bar")]
-        ops = [MountOp("del_all", "", "")]
-        assert _resolve_mounts(ops, current) == []
-
-    def test_del_specific_removes_entry(self) -> None:
-        current = [("/foo", "/foo"), ("/bar", "/bar")]
-        ops = [MountOp("del", "/foo", "")]
-        assert _resolve_mounts(ops, current) == [("/bar", "/bar")]
-
-    def test_del_missing_warns_and_continues(self, caplog: pytest.LogCaptureFixture) -> None:
-        import logging
-
-        current = [("/bar", "/bar")]
-        ops = [MountOp("del", "/foo", "")]
-        with caplog.at_level(logging.WARNING):
-            result = _resolve_mounts(ops, current)
-        assert result == [("/bar", "/bar")]
-        assert any("/foo" in m for m in caplog.messages)
-
-    def test_add_appends_new_entry(self) -> None:
-        current = [("/foo", "/foo")]
-        ops = [MountOp("add", "/bar", "/bar")]
-        assert _resolve_mounts(ops, current) == [("/foo", "/foo"), ("/bar", "/bar")]
-
-    def test_add_skips_duplicate(self) -> None:
-        current = [("/foo", "/foo")]
-        ops = [MountOp("add", "/foo", "/foo")]
-        assert _resolve_mounts(ops, current) == [("/foo", "/foo")]
-
-    def test_plain_mount_replaces_all(self) -> None:
-        current = [("/old", "/old")]
-        ops = [MountOp("del_all", "", ""), MountOp("add", "/new", "/new")]
-        assert _resolve_mounts(ops, current) == [("/new", "/new")]
-
-    def test_del_all_then_add_left_to_right(self) -> None:
-        current = [("/foo", "/foo")]
-        ops = [MountOp("del_all", "", ""), MountOp("add", "/bar", "/bar")]
-        assert _resolve_mounts(ops, current) == [("/bar", "/bar")]
-
-    def test_del_then_add_same_path_results_in_present(self) -> None:
-        current = [("/foo", "/foo")]
-        ops = [MountOp("del", "/foo", ""), MountOp("add", "/foo", "/foo")]
-        assert _resolve_mounts(ops, current) == [("/foo", "/foo")]
-
-    def test_add_then_del_same_path_results_in_absent(self) -> None:
-        current: list[tuple[str, str]] = []
-        ops = [MountOp("add", "/foo", "/foo"), MountOp("del", "/foo", "")]
-        assert _resolve_mounts(ops, current) == []
-
-    def test_mixed_del_and_add(self) -> None:
-        current = [("/foo", "/foo"), ("/bar", "/bar")]
-        ops = [MountOp("del", "/foo", ""), MountOp("add", "/baz", "/baz")]
-        assert _resolve_mounts(ops, current) == [("/bar", "/bar"), ("/baz", "/baz")]
+    def test_resolves_realpath(self) -> None:
+        host, inst = _parse_mount("/tmp/../foo")
+        assert ".." not in host
+        assert inst == host
 
 
 class TestMainExistingInstance:
@@ -572,52 +489,61 @@ class TestMainMounts:
 
         return mock_sync
 
-    def test_plain_mount_replaces_all_existing(self) -> None:
+    def test_mount_adds_to_existing(self) -> None:
         mock_sync = self._run_with_mounts(
             ["--mount", "/foo"],
             current_mounts=[("/old", "/old")],
         )
         _, args, _ = mock_sync.mock_calls[0]
-        assert args[1] == [("/foo", "/foo")]
+        mounts = args[1]
+        assert ("/old", "/old") in mounts
+        assert any(h == "/foo" for h, _ in mounts)
 
     def test_mount_with_explicit_instance_path(self) -> None:
         mock_sync = self._run_with_mounts(["--mount", "/host/data:/inst/data"])
         _, args, _ = mock_sync.mock_calls[0]
-        assert ("/host/data", "/inst/data") in args[1]
+        assert any(i == "/inst/data" for _, i in args[1])
 
-    def test_add_prefix_appends_to_existing(self) -> None:
+    def test_clear_mounts_removes_all(self) -> None:
         mock_sync = self._run_with_mounts(
-            ["--mount", "add:/bar"],
-            current_mounts=[("/foo", "/foo")],
-        )
-        _, args, _ = mock_sync.mock_calls[0]
-        mounts = args[1]
-        assert ("/foo", "/foo") in mounts
-        assert ("/bar", "/bar") in mounts
-
-    def test_del_all_removes_all_mounts(self) -> None:
-        mock_sync = self._run_with_mounts(
-            ["--mount", "del:"],
+            ["--clear-mounts"],
             current_mounts=[("/foo", "/foo"), ("/bar", "/bar")],
         )
         _, args, _ = mock_sync.mock_calls[0]
         assert args[1] == []
 
-    def test_del_specific_removes_one_mount(self) -> None:
+    def test_clear_mounts_then_add(self) -> None:
         mock_sync = self._run_with_mounts(
-            ["--mount", "del:/foo"],
-            current_mounts=[("/foo", "/foo"), ("/bar", "/bar")],
-        )
-        _, args, _ = mock_sync.mock_calls[0]
-        assert args[1] == [("/bar", "/bar")]
-
-    def test_del_all_then_add_via_mixed(self) -> None:
-        mock_sync = self._run_with_mounts(
-            ["--mount", "del:", "--mount", "add:/baz"],
+            ["--clear-mounts", "--mount", "/baz"],
             current_mounts=[("/foo", "/foo")],
         )
         _, args, _ = mock_sync.mock_calls[0]
-        assert args[1] == [("/baz", "/baz")]
+        mounts = args[1]
+        assert not any(h == "/foo" for h, _ in mounts)
+        assert any(h == "/baz" for h, _ in mounts)
+
+    def test_duplicate_mount_warns(self) -> None:
+        runner = CliRunner()
+        user = _make_user()
+        instance = _make_instance()
+
+        with (
+            patch("lxcme.cli.get_target_info", return_value=_TARGET_UBUNTU),
+            patch("lxcme.cli.get_current_user", return_value=user),
+            patch("lxcme.cli.pylxd.Client"),
+            patch("lxcme.cli.find_instance", return_value=instance),
+            patch("lxcme.cli.is_setup_done", return_value=True),
+            patch("lxcme.cli.ensure_running"),
+            patch("lxcme.cli.get_tracked_mounts", return_value=[("/foo", "/foo")]),
+            patch("lxcme.cli.sync_mounts", return_value=False),
+            patch("lxcme.cli.get_instance_user_ids", return_value=_INSTANCE_IDS),
+            patch("lxcme.cli.is_interactive", return_value=True),
+            patch("lxcme.cli.exec_interactive"),
+            patch("lxcme.cli.logger") as mock_logger,
+        ):
+            runner.invoke(main, ["--mount", "/foo"])
+
+        mock_logger.warning.assert_called()
 
     def test_no_mounts_skips_sync(self) -> None:
         runner = CliRunner()
