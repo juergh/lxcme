@@ -8,115 +8,28 @@ from unittest.mock import MagicMock, patch
 from click.testing import CliRunner
 
 from lxcme.work import (
-    WORK_CONFIG_PREFIX,
-    compute_work_hash,
-    decrement_refcount,
-    get_refcount,
-    increment_refcount,
+    _compute_work_hash,
     main,
-    set_refcount,
 )
 
 
 class TestComputeWorkHash:
     def test_deterministic(self) -> None:
         path = "/home/user/projects/myapp"
-        assert compute_work_hash(path) == compute_work_hash(path)
+        assert _compute_work_hash(path) == _compute_work_hash(path)
 
     def test_length_is_8(self) -> None:
         path = "/some/path"
-        assert len(compute_work_hash(path)) == 8
+        assert len(_compute_work_hash(path)) == 8
 
     def test_different_paths_different_hashes(self) -> None:
-        hash1 = compute_work_hash("/path/one")
-        hash2 = compute_work_hash("/path/two")
+        hash1 = _compute_work_hash("/path/one")
+        hash2 = _compute_work_hash("/path/two")
         assert hash1 != hash2
 
     def test_hex_characters(self) -> None:
-        result = compute_work_hash("/any/path")
+        result = _compute_work_hash("/any/path")
         assert all(c in "0123456789abcdef" for c in result)
-
-
-class TestGetRefcount:
-    def test_missing_key_returns_zero(self) -> None:
-        instance = MagicMock()
-        instance.config = {}
-
-        assert get_refcount(instance, "abc12345") == 0
-
-    def test_returns_stored_value(self) -> None:
-        instance = MagicMock()
-        instance.config = {f"{WORK_CONFIG_PREFIX}abc12345.count": "3"}
-
-        assert get_refcount(instance, "abc12345") == 3
-
-
-class TestSetRefcount:
-    def test_positive_sets_key(self) -> None:
-        instance = MagicMock()
-        instance.config = {}
-
-        set_refcount(instance, "abc12345", 2)
-
-        assert instance.config[f"{WORK_CONFIG_PREFIX}abc12345.count"] == "2"
-        instance.save.assert_called_once_with(wait=True)
-
-    def test_zero_removes_key(self) -> None:
-        instance = MagicMock()
-        instance.config = {f"{WORK_CONFIG_PREFIX}abc12345.count": "1"}
-
-        set_refcount(instance, "abc12345", 0)
-
-        assert f"{WORK_CONFIG_PREFIX}abc12345.count" not in instance.config
-        instance.save.assert_called_once_with(wait=True)
-
-    def test_negative_removes_key(self) -> None:
-        instance = MagicMock()
-        instance.config = {f"{WORK_CONFIG_PREFIX}abc12345.count": "1"}
-
-        set_refcount(instance, "abc12345", -1)
-
-        assert f"{WORK_CONFIG_PREFIX}abc12345.count" not in instance.config
-
-
-class TestIncrementRefcount:
-    def test_from_zero(self) -> None:
-        instance = MagicMock()
-        instance.config = {}
-
-        result = increment_refcount(instance, "abc12345")
-
-        assert result == 1
-        assert instance.config[f"{WORK_CONFIG_PREFIX}abc12345.count"] == "1"
-
-    def test_from_existing(self) -> None:
-        instance = MagicMock()
-        instance.config = {f"{WORK_CONFIG_PREFIX}abc12345.count": "2"}
-
-        result = increment_refcount(instance, "abc12345")
-
-        assert result == 3
-        assert instance.config[f"{WORK_CONFIG_PREFIX}abc12345.count"] == "3"
-
-
-class TestDecrementRefcount:
-    def test_to_zero(self) -> None:
-        instance = MagicMock()
-        instance.config = {f"{WORK_CONFIG_PREFIX}abc12345.count": "1"}
-
-        result = decrement_refcount(instance, "abc12345")
-
-        assert result == 0
-        assert f"{WORK_CONFIG_PREFIX}abc12345.count" not in instance.config
-
-    def test_to_positive(self) -> None:
-        instance = MagicMock()
-        instance.config = {f"{WORK_CONFIG_PREFIX}abc12345.count": "3"}
-
-        result = decrement_refcount(instance, "abc12345")
-
-        assert result == 2
-        assert instance.config[f"{WORK_CONFIG_PREFIX}abc12345.count"] == "2"
 
 
 def _make_mock_instance(config: dict[str, str] | None = None) -> MagicMock:
@@ -263,39 +176,6 @@ class TestMain:
         assert result.exit_code == 0
         mock_create_instance.assert_called_once()
 
-    def test_sets_refcount_after_creation(self, tmp_path: Path) -> None:
-        runner = CliRunner()
-
-        instance = _make_mock_instance()
-        user = _make_mock_user(tmp_path)
-        target = _make_mock_target()
-
-        work_hash = compute_work_hash("/test/path")
-
-        with (
-            patch("lxcme.work.Path.home", return_value=tmp_path),
-            patch("lxcme.work.os.getcwd", return_value="/test/path"),
-            patch("lxcme.work.os.path.realpath", side_effect=lambda p: p),
-            patch("lxcme.work.pylxd.Client") as mock_client_class,
-            patch("lxcme.work.find_instance", return_value=None),
-            patch("lxcme.work.get_current_user", return_value=user),
-            patch("lxcme.work.get_target_info", return_value=target),
-            patch("lxcme.work.ensure_image", return_value=MagicMock()),
-            patch("lxcme.work.create_instance", return_value=instance),
-            patch("lxcme.work.setup_instance_user"),
-            patch("lxcme.work.sync_mounts", return_value=True),
-            patch("lxcme.work.ensure_running"),
-            patch("lxcme.work.get_instance_user_ids", return_value=(1000, 1000)),
-            patch("lxcme.work.exec_interactive_wait", return_value=0),
-            patch("lxcme.work.get_tracked_mounts", return_value=[]),
-        ):
-            mock_client_class.return_value = MagicMock()
-            runner.invoke(main, ["my-instance"], input="y\n")
-
-        key = f"{WORK_CONFIG_PREFIX}{work_hash}.count"
-        assert key not in instance.config
-        assert instance.save.call_count >= 2
-
     def test_exits_gracefully_if_creation_aborted(self, tmp_path: Path) -> None:
         runner = CliRunner()
 
@@ -317,172 +197,10 @@ class TestMain:
         assert result.exit_code == 0
         assert "Aborted" in result.output
 
-    def test_increments_refcount_for_existing_instance(self, tmp_path: Path) -> None:
-        runner = CliRunner()
-
-        work_hash = compute_work_hash("/test/path")
-        instance = _make_mock_instance({f"{WORK_CONFIG_PREFIX}{work_hash}.count": "1"})
-        user = _make_mock_user(tmp_path)
-        target = _make_mock_target()
-
-        with (
-            patch("lxcme.work.Path.home", return_value=tmp_path),
-            patch("lxcme.work.os.getcwd", return_value="/test/path"),
-            patch("lxcme.work.os.path.realpath", side_effect=lambda p: p),
-            patch("lxcme.work.pylxd.Client") as mock_client_class,
-            patch("lxcme.work.find_instance", return_value=instance),
-            patch("lxcme.work.get_current_user", return_value=user),
-            patch("lxcme.work.get_target_info", return_value=target),
-            patch("lxcme.work.is_setup_done", return_value=True),
-            patch("lxcme.work.ensure_running"),
-            patch("lxcme.work.sync_mounts", return_value=True),
-            patch("lxcme.work.get_instance_user_ids", return_value=(1000, 1000)),
-            patch("lxcme.work.exec_interactive_wait", return_value=0),
-            patch("lxcme.work.get_tracked_mounts", return_value=[]),
-        ):
-            mock_client_class.return_value = MagicMock()
-            runner.invoke(main, ["my-instance"])
-
-        key = f"{WORK_CONFIG_PREFIX}{work_hash}.count"
-        assert instance.config.get(key) == "1"
-        assert instance.save.call_count >= 2
-
-    def test_decrements_refcount_after_session(self, tmp_path: Path) -> None:
-        runner = CliRunner()
-
-        work_hash = compute_work_hash("/test/path")
-        instance = _make_mock_instance({f"{WORK_CONFIG_PREFIX}{work_hash}.count": "2"})
-        user = _make_mock_user(tmp_path)
-        target = _make_mock_target()
-
-        with (
-            patch("lxcme.work.Path.home", return_value=tmp_path),
-            patch("lxcme.work.os.getcwd", return_value="/test/path"),
-            patch("lxcme.work.os.path.realpath", side_effect=lambda p: p),
-            patch("lxcme.work.pylxd.Client") as mock_client_class,
-            patch("lxcme.work.find_instance", return_value=instance),
-            patch("lxcme.work.get_current_user", return_value=user),
-            patch("lxcme.work.get_target_info", return_value=target),
-            patch("lxcme.work.is_setup_done", return_value=True),
-            patch("lxcme.work.ensure_running"),
-            patch("lxcme.work.sync_mounts", return_value=True),
-            patch("lxcme.work.get_instance_user_ids", return_value=(1000, 1000)),
-            patch("lxcme.work.exec_interactive_wait", return_value=0),
-            patch("lxcme.work.get_tracked_mounts", return_value=[]),
-        ):
-            mock_client_class.return_value = MagicMock()
-            runner.invoke(main, ["my-instance"])
-
-        key = f"{WORK_CONFIG_PREFIX}{work_hash}.count"
-        assert instance.config.get(key) == "2"
-
-    def test_unmounts_when_refcount_zero(self, tmp_path: Path) -> None:
-        runner = CliRunner()
-
-        work_hash = compute_work_hash("/test/path")
-        work_path = f"/work-{work_hash}"
-        instance = _make_mock_instance()
-        user = _make_mock_user(tmp_path)
-        target = _make_mock_target()
-
-        mock_sync_mounts = MagicMock(return_value=True)
-        home_mount = (str(tmp_path), str(tmp_path))
-
-        with (
-            patch("lxcme.work.Path.home", return_value=tmp_path),
-            patch("lxcme.work.os.getcwd", return_value="/test/path"),
-            patch("lxcme.work.os.path.realpath", side_effect=lambda p: str(p)),
-            patch("lxcme.work.pylxd.Client") as mock_client_class,
-            patch("lxcme.work.find_instance", return_value=instance),
-            patch("lxcme.work.get_current_user", return_value=user),
-            patch("lxcme.work.get_target_info", return_value=target),
-            patch("lxcme.work.is_setup_done", return_value=True),
-            patch("lxcme.work.ensure_running"),
-            patch("lxcme.work.sync_mounts", mock_sync_mounts),
-            patch("lxcme.work.get_instance_user_ids", return_value=(1000, 1000)),
-            patch("lxcme.work.exec_interactive_wait", return_value=0),
-            patch("lxcme.work.get_tracked_mounts", return_value=[home_mount, ("/test/path", work_path)]),
-        ):
-            mock_client_class.return_value = MagicMock()
-            runner.invoke(main, ["my-instance"])
-
-        assert mock_sync_mounts.call_count == 1
-        final_call = mock_sync_mounts.call_args_list[-1]
-        assert final_call[0][1] == [home_mount]
-
-    def test_no_unmount_when_refcount_positive(self, tmp_path: Path) -> None:
-        runner = CliRunner()
-
-        work_hash = compute_work_hash("/test/path")
-        work_path = f"/work-{work_hash}"
-        instance = _make_mock_instance({f"{WORK_CONFIG_PREFIX}{work_hash}.count": "2"})
-        user = _make_mock_user(tmp_path)
-        target = _make_mock_target()
-
-        mock_sync_mounts = MagicMock(return_value=True)
-
-        with (
-            patch("lxcme.work.Path.home", return_value=tmp_path),
-            patch("lxcme.work.os.getcwd", return_value="/test/path"),
-            patch("lxcme.work.os.path.realpath", side_effect=lambda p: str(p)),
-            patch("lxcme.work.pylxd.Client") as mock_client_class,
-            patch("lxcme.work.find_instance", return_value=instance),
-            patch("lxcme.work.get_current_user", return_value=user),
-            patch("lxcme.work.get_target_info", return_value=target),
-            patch("lxcme.work.is_setup_done", return_value=True),
-            patch("lxcme.work.ensure_running"),
-            patch("lxcme.work.sync_mounts", mock_sync_mounts),
-            patch("lxcme.work.get_instance_user_ids", return_value=(1000, 1000)),
-            patch("lxcme.work.exec_interactive_wait", return_value=0),
-            patch(
-                "lxcme.work.get_tracked_mounts",
-                return_value=[(str(tmp_path), str(tmp_path)), ("/test/path", work_path)],
-            ),
-        ):
-            mock_client_class.return_value = MagicMock()
-            runner.invoke(main, ["my-instance"])
-
-        mock_sync_mounts.assert_not_called()
-
-    def test_cleanup_on_nonzero_exit(self, tmp_path: Path) -> None:
-        runner = CliRunner()
-
-        work_hash = compute_work_hash("/test/path")
-        work_path = f"/work-{work_hash}"
-        instance = _make_mock_instance()
-        user = _make_mock_user(tmp_path)
-        target = _make_mock_target()
-
-        mock_sync_mounts = MagicMock(return_value=True)
-        home_mount = (str(tmp_path), str(tmp_path))
-
-        with (
-            patch("lxcme.work.Path.home", return_value=tmp_path),
-            patch("lxcme.work.os.getcwd", return_value="/test/path"),
-            patch("lxcme.work.os.path.realpath", side_effect=lambda p: str(p)),
-            patch("lxcme.work.pylxd.Client") as mock_client_class,
-            patch("lxcme.work.find_instance", return_value=instance),
-            patch("lxcme.work.get_current_user", return_value=user),
-            patch("lxcme.work.get_target_info", return_value=target),
-            patch("lxcme.work.is_setup_done", return_value=True),
-            patch("lxcme.work.ensure_running"),
-            patch("lxcme.work.sync_mounts", mock_sync_mounts),
-            patch("lxcme.work.get_instance_user_ids", return_value=(1000, 1000)),
-            patch("lxcme.work.exec_interactive_wait", return_value=42),
-            patch("lxcme.work.get_tracked_mounts", return_value=[home_mount, ("/test/path", work_path)]),
-        ):
-            mock_client_class.return_value = MagicMock()
-            result = runner.invoke(main, ["my-instance"])
-
-        assert mock_sync_mounts.call_count == 1
-        final_call = mock_sync_mounts.call_args_list[-1]
-        assert final_call[0][1] == [home_mount]
-        assert result.exit_code == 42
-
     def test_calls_exec_interactive_wait_with_correct_args(self, tmp_path: Path) -> None:
         runner = CliRunner()
 
-        work_hash = compute_work_hash("/test/project")
+        work_hash = _compute_work_hash("/test/project")
         work_path = f"/work-{work_hash}"
         instance = _make_mock_instance()
         user = _make_mock_user(tmp_path)
@@ -589,33 +307,6 @@ class TestMain:
         call_kwargs = mock_exec.call_args[1]
         assert call_kwargs["cwd"] == str(tmp_path)
 
-    def test_no_refcount_when_cwd_equals_home(self, tmp_path: Path) -> None:
-        runner = CliRunner()
-
-        instance = _make_mock_instance()
-        user = _make_mock_user(tmp_path)
-        target = _make_mock_target()
-
-        with (
-            patch("lxcme.work.Path.home", return_value=tmp_path),
-            patch("lxcme.work.os.getcwd", return_value=str(tmp_path)),
-            patch("lxcme.work.os.path.realpath", side_effect=lambda p: str(p)),
-            patch("lxcme.work.pylxd.Client") as mock_client_class,
-            patch("lxcme.work.find_instance", return_value=instance),
-            patch("lxcme.work.get_current_user", return_value=user),
-            patch("lxcme.work.get_target_info", return_value=target),
-            patch("lxcme.work.is_setup_done", return_value=True),
-            patch("lxcme.work.ensure_running"),
-            patch("lxcme.work.sync_mounts", return_value=True),
-            patch("lxcme.work.get_instance_user_ids", return_value=(1000, 1000)),
-            patch("lxcme.work.exec_interactive_wait", return_value=0),
-            patch("lxcme.work.get_tracked_mounts", return_value=[(str(tmp_path), str(tmp_path))]),
-        ):
-            mock_client_class.return_value = MagicMock()
-            runner.invoke(main, ["my-instance"])
-
-        instance.save.assert_not_called()
-
     def test_handles_symlinked_paths(self, tmp_path: Path) -> None:
         runner = CliRunner()
 
@@ -657,35 +348,6 @@ class TestMain:
         mock_sync_mounts.assert_not_called()
         call_kwargs = mock_exec.call_args[1]
         assert call_kwargs["cwd"] == str(real_path)
-
-    def test_no_unmount_when_cwd_equals_home(self, tmp_path: Path) -> None:
-        runner = CliRunner()
-
-        instance = _make_mock_instance()
-        user = _make_mock_user(tmp_path)
-        target = _make_mock_target()
-
-        mock_sync_mounts = MagicMock(return_value=True)
-
-        with (
-            patch("lxcme.work.Path.home", return_value=tmp_path),
-            patch("lxcme.work.os.getcwd", return_value=str(tmp_path)),
-            patch("lxcme.work.os.path.realpath", side_effect=lambda p: str(p)),
-            patch("lxcme.work.pylxd.Client") as mock_client_class,
-            patch("lxcme.work.find_instance", return_value=instance),
-            patch("lxcme.work.get_current_user", return_value=user),
-            patch("lxcme.work.get_target_info", return_value=target),
-            patch("lxcme.work.is_setup_done", return_value=True),
-            patch("lxcme.work.ensure_running"),
-            patch("lxcme.work.sync_mounts", mock_sync_mounts),
-            patch("lxcme.work.get_instance_user_ids", return_value=(1000, 1000)),
-            patch("lxcme.work.exec_interactive_wait", return_value=0),
-            patch("lxcme.work.get_tracked_mounts", return_value=[(str(tmp_path), str(tmp_path))]),
-        ):
-            mock_client_class.return_value = MagicMock()
-            runner.invoke(main, ["my-instance"])
-
-        mock_sync_mounts.assert_not_called()
 
     def test_runs_setup_for_existing_instance_if_not_done(self, tmp_path: Path) -> None:
         runner = CliRunner()
@@ -757,7 +419,7 @@ class TestMain:
     def test_ensures_home_mount_with_work_path(self, tmp_path: Path) -> None:
         runner = CliRunner()
 
-        work_hash = compute_work_hash("/test/path")
+        work_hash = _compute_work_hash("/test/path")
         work_path = f"/work-{work_hash}"
         instance = _make_mock_instance()
         user = _make_mock_user(tmp_path)

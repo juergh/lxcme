@@ -1,4 +1,4 @@
-"""lxcme-work: wrapper for mounting $PWD into LXC instances with refcounting."""
+"""lxcme-work: wrapper for mounting $HOME and $PWD into LXC instances."""
 
 from __future__ import annotations
 
@@ -29,8 +29,6 @@ from lxcme.users import (
     sync_mounts,
 )
 
-WORK_CONFIG_PREFIX = "user.lxcme.work."
-
 logger = logging.getLogger(__name__)
 
 
@@ -39,39 +37,9 @@ def _configure_logging() -> None:
     logging.basicConfig(format="%(levelname)s: %(message)s", level=logging.INFO)
 
 
-def compute_work_hash(path: str) -> str:
+def _compute_work_hash(path: str) -> str:
     """Return first 8 chars of SHA256 hash of path."""
     return hashlib.sha256(path.encode()).hexdigest()[:8]
-
-
-def get_refcount(instance: pylxd.models.Instance, work_hash: str) -> int:
-    """Get current refcount from instance config, 0 if not set."""
-    key = f"{WORK_CONFIG_PREFIX}{work_hash}.count"
-    return int(instance.config.get(key, 0))
-
-
-def set_refcount(instance: pylxd.models.Instance, work_hash: str, count: int) -> None:
-    """Set refcount in instance config, remove key if count <= 0."""
-    key = f"{WORK_CONFIG_PREFIX}{work_hash}.count"
-    if count <= 0:
-        instance.config.pop(key, None)
-    else:
-        instance.config[key] = str(count)
-    instance.save(wait=True)
-
-
-def increment_refcount(instance: pylxd.models.Instance, work_hash: str) -> int:
-    """Increment refcount, return new value."""
-    count = get_refcount(instance, work_hash) + 1
-    set_refcount(instance, work_hash, count)
-    return count
-
-
-def decrement_refcount(instance: pylxd.models.Instance, work_hash: str) -> int:
-    """Decrement refcount, return new value."""
-    count = get_refcount(instance, work_hash) - 1
-    set_refcount(instance, work_hash, count)
-    return count
 
 
 def _create_and_setup_instance(
@@ -128,7 +96,7 @@ def main(home_dir: Path | None, instance_name: str) -> None:
     home_resolved = os.path.realpath(home_mount)
     same_path = cwd_resolved == home_resolved
 
-    work_hash = compute_work_hash(cwd)
+    work_hash = _compute_work_hash(cwd)
     work_path = f"/work-{work_hash}"
 
     client = pylxd.Client()
@@ -141,15 +109,11 @@ def main(home_dir: Path | None, instance_name: str) -> None:
         instance = _create_and_setup_instance(client, instance_name, user, home_resolved)
         if instance is None:
             sys.exit(0)
-        if not same_path:
-            set_refcount(instance, work_hash, 1)
     else:
         assert instance is not None
         instance.sync()
         if not is_setup_done(instance):
             setup_instance_user(instance, user)
-        if not same_path:
-            increment_refcount(instance, work_hash)
 
     assert instance is not None
 
@@ -180,25 +144,15 @@ def main(home_dir: Path | None, instance_name: str) -> None:
     if target.distro in ("debian", "ubuntu"):
         extra_env["debian_chroot"] = "lxc"
 
-    exit_code = 0
-    try:
-        exit_code = exec_interactive_wait(
-            instance_name,
-            user,
-            ["bash", "--login"],
-            instance_uid,
-            instance_gid,
-            as_root=False,
-            extra_env=extra_env,
-            cwd=effective_cwd,
-        )
-    finally:
-        if not same_path:
-            instance.sync()
-            final_count = decrement_refcount(instance, work_hash)
-            if final_count <= 0:
-                current_mounts = get_tracked_mounts(instance)
-                new_mounts = [(h, i) for h, i in current_mounts if h != cwd]
-                sync_mounts(instance, new_mounts)
+    exit_code = exec_interactive_wait(
+        instance_name,
+        user,
+        ["bash", "--login"],
+        instance_uid,
+        instance_gid,
+        as_root=False,
+        extra_env=extra_env,
+        cwd=effective_cwd,
+    )
 
     sys.exit(exit_code)
