@@ -186,25 +186,6 @@ def sync_mounts(instance: pylxd.models.Instance, mounts: list[tuple[str, str]]) 
     return True
 
 
-def setup_home_directory(
-    instance: pylxd.models.Instance,
-    user: User,
-    instance_uid: int,
-    instance_gid: int,
-) -> None:
-    """Create an empty home directory inside the instance."""
-    home_str = str(user.home)
-    rc, _, stderr = _exec_in(instance, ["mkdir", "-p", home_str])
-    if rc != 0:
-        raise RuntimeError(f"Failed to create home directory '{home_str}': {stderr.strip()}")
-
-    rc, _, stderr = _exec_in(instance, ["chown", f"{instance_uid}:{instance_gid}", home_str])
-    if rc != 0:
-        raise RuntimeError(f"Failed to chown home directory '{home_str}': {stderr.strip()}")
-
-    logger.info("Created home directory '%s' inside instance.", home_str)
-
-
 def _sudoers_filename(username: str) -> str:
     """Derive a valid /etc/sudoers.d filename from a username.
 

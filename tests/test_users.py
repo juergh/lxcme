@@ -21,7 +21,6 @@ from lxcme.users import (
     get_tracked_mounts,
     is_setup_done,
     mark_setup_done,
-    setup_home_directory,
     setup_instance_user,
     setup_passwordless_sudo,
     sync_mounts,
@@ -218,23 +217,6 @@ class TestGetTrackedMounts:
         instance.config = {}
 
         assert get_tracked_mounts(instance) == []
-
-    def test_creates_and_chowns(self) -> None:
-        instance = MagicMock()
-        instance.execute.return_value = _make_exec_result(exit_code=0)
-
-        setup_home_directory(instance, _make_user(), instance_uid=1000, instance_gid=1000)
-
-        calls = [c[0][0] for c in instance.execute.call_args_list]
-        assert any("mkdir" in str(c) for c in calls)
-        assert any("chown" in str(c) for c in calls)
-
-    def test_raises_on_mkdir_failure(self) -> None:
-        instance = MagicMock()
-        instance.execute.return_value = _make_exec_result(exit_code=1, stderr="permission denied")
-
-        with pytest.raises(RuntimeError, match="Failed to create home directory"):
-            setup_home_directory(instance, _make_user(), 1000, 1000)
 
 
 class TestSudoersFilename:
