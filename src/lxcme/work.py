@@ -84,8 +84,14 @@ def _create_and_setup_instance(
     type=click.Path(exists=True, file_okay=False, path_type=Path),
     help=f"Host directory to mount as $HOME inside the instance (default: {Path.home()}).",
 )
+@click.option(
+    "--clear-mounts",
+    is_flag=True,
+    default=False,
+    help="Remove all existing mounts before adding new ones.",
+)
 @click.argument("instance_name", required=True)
-def main(home_dir: Path | None, instance_name: str) -> None:
+def main(home_dir: Path | None, clear_mounts: bool, instance_name: str) -> None:
     """Enter LXC instance with $PWD mounted at /work-<hash>."""
     _configure_logging()
 
@@ -122,6 +128,12 @@ def main(home_dir: Path | None, instance_name: str) -> None:
     current = get_tracked_mounts(instance)
     desired = list(current)
     changed = False
+
+    if clear_mounts:
+        # Clear existing mounts
+        desired = []
+        logger.info("Clearing all existing mounts.")
+        changed = True
 
     if not any(h == home_resolved for h, _ in desired):
         home_instance_path = str(Path.home())
