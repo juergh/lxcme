@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import sys
+from pathlib import Path
 
 import click
 import pylxd
@@ -76,6 +77,13 @@ def _parse_env(value: str) -> tuple[str, str]:
     help="Add a mount (host path, optionally mapped to instance path). Repeatable.",
 )
 @click.option(
+    "--home",
+    "home_dir",
+    default=None,
+    type=click.Path(exists=True, file_okay=False, path_type=Path),
+    help="Host directory to mount as $HOME inside the instance (default: $HOME).",
+)
+@click.option(
     "--clear-mounts",
     is_flag=True,
     default=False,
@@ -99,6 +107,7 @@ def _parse_env(value: str) -> tuple[str, str]:
 def main(
     root: bool,
     mounts: tuple[str, ...],
+    home_dir: Path | None,
     clear_mounts: bool,
     env_vars: tuple[str, ...],
     distro: str | None,
@@ -125,6 +134,8 @@ def main(
       lxcme --mount /data                       Add /data mount
       lxcme --mount /host/src:/work             Add with custom instance path
       lxcme --mount /a --mount /b               Add multiple mounts
+      lxcme --home                              Mount $HOME inside the instance
+      lxcme --home /host/home                   Mount /host/home as $HOME
       lxcme --clear-mounts                      Remove all mounts
       lxcme --clear-mounts --mount /data        Replace all mounts with /data
     """
@@ -140,6 +151,8 @@ def main(
     instance_name = instance_name or target.instance_alias
     resolved_command = _resolve_command(tuple(cmd_list))
     parsed_mounts = [_parse_mount(m) for m in mounts]
+    if home_dir is not None:
+        parsed_mounts.append((os.path.realpath(str(home_dir)), str(Path.home())))
     parsed_env = dict(_parse_env(e) for e in env_vars)
 
     client = pylxd.Client()
