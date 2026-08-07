@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 import sys
@@ -65,6 +66,12 @@ def _parse_env(value: str) -> tuple[str, str]:
     return key, val
 
 
+def _work_path_for(cwd: str) -> str:
+    """Return /work-<hash> instance path for the given host cwd."""
+    digest = hashlib.sha256(cwd.encode()).hexdigest()[:8]
+    return f"/work-{digest}"
+
+
 @click.command(
     context_settings={"ignore_unknown_options": True, "allow_extra_args": True},
 )
@@ -82,6 +89,12 @@ def _parse_env(value: str) -> tuple[str, str]:
     default=None,
     type=click.Path(exists=True, file_okay=False, path_type=Path),
     help="Host directory to mount as $HOME inside the instance (default: $HOME).",
+)
+@click.option(
+    "--work",
+    is_flag=True,
+    default=False,
+    help="Mount current directory at /work-<hash> inside the instance.",
 )
 @click.option(
     "--clear-mounts",
@@ -108,6 +121,7 @@ def main(
     root: bool,
     mounts: tuple[str, ...],
     home_dir: Path | None,
+    work: bool,
     clear_mounts: bool,
     env_vars: tuple[str, ...],
     distro: str | None,
@@ -136,6 +150,7 @@ def main(
       lxcme --mount /a --mount /b               Add multiple mounts
       lxcme --home                              Mount $HOME inside the instance
       lxcme --home /host/home                   Mount /host/home as $HOME
+      lxcme --work my-box                       Mount cwd at /work-<hash> and enter
       lxcme --clear-mounts                      Remove all mounts
       lxcme --clear-mounts --mount /data        Replace all mounts with /data
     """
@@ -153,6 +168,13 @@ def main(
     parsed_mounts = [_parse_mount(m) for m in mounts]
     if home_dir is not None:
         parsed_mounts.append((os.path.realpath(str(home_dir)), str(Path.home())))
+    work_path: str | None = None
+    if work:
+        host_cwd = os.getcwd()
+        work_path = _work_path_for(host_cwd)
+        parsed_mounts.append((host_cwd, work_path))
+    if work_path is not None and cwd is None:
+        cwd = work_path
     parsed_env = dict(_parse_env(e) for e in env_vars)
 
     client = pylxd.Client()
