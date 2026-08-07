@@ -88,7 +88,7 @@ def _work_path_for(cwd: str) -> str:
     "home_dir",
     default=None,
     type=click.Path(exists=True, file_okay=False, path_type=Path),
-    help="Host directory to mount as $HOME inside the instance (default: $HOME).",
+    help="Host directory to mount as $HOME inside the instance.",
 )
 @click.option(
     "--work",
@@ -148,7 +148,6 @@ def main(
       lxcme --mount /data                       Add /data mount
       lxcme --mount /host/src:/work             Add with custom instance path
       lxcme --mount /a --mount /b               Add multiple mounts
-      lxcme --home                              Mount $HOME inside the instance
       lxcme --home /host/home                   Mount /host/home as $HOME
       lxcme --work my-box                       Mount cwd at /work-<hash> and enter
       lxcme --clear-mounts                      Remove all mounts
