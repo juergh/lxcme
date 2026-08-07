@@ -14,7 +14,6 @@ dependencies = [
 
 [project.scripts]
 lxcme = "lxcme.cli:main"
-lxcme-work = "lxcme.work:main"
 
 [dependency-groups]
 dev = [
@@ -33,12 +32,12 @@ target-version = "py311"
 select = ["E", "F", "I", "N", "W", "UP"]
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "py311"
 strict = true
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-module = ["lxcme.cli", "lxcme.work", "tests.*"]
+module = ["lxcme.cli", "tests.*"]
 disable_error_code = ["untyped-decorator"]
 
 [tool.hatch.build.targets.wheel]
