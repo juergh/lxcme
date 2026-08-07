@@ -7,15 +7,6 @@ from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
-class _HostInfo:
-    """Host system information from /etc/os-release and platform."""
-
-    distro: str
-    release: str
-    arch: str
-
-
-@dataclass(frozen=True)
 class TargetInfo:
     """Target instance configuration with defaults derived from host info."""
 
@@ -26,10 +17,10 @@ class TargetInfo:
 
     @property
     def instance_alias(self) -> str:
-        """Instance name (release-arch for Ubuntu/Debian, else distro-release-arch)."""
+        """Instance name (release for Ubuntu/Debian, else distro-release)."""
         if self.distro in ("ubuntu", "debian"):
-            return f"{self.release}-{self.arch}"
-        return f"{self.distro}-{self.release}-{self.arch}"
+            return self.release
+        return f"{self.distro}-{self.release}"
 
     @property
     def image_alias(self) -> str:
@@ -50,14 +41,13 @@ def _parse_os_release() -> dict[str, str]:
     return result
 
 
-def _get_host_info() -> _HostInfo:
+def _get_host_info() -> tuple[str, str, str]:
     """Detect host system information from /etc/os-release and platform."""
     os_release = _parse_os_release()
-    return _HostInfo(
-        distro=os_release.get("ID", "").lower(),
-        release=(os_release.get("VERSION_CODENAME") or os_release.get("VERSION_ID", "")).lower(),
-        arch=_machine_to_lxc_arch(platform.machine()),
-    )
+    host_distro = os_release.get("ID", "").lower()
+    host_release = (os_release.get("VERSION_CODENAME") or os_release.get("VERSION_ID", "")).lower()
+    host_arch = _machine_to_lxc_arch(platform.machine())
+    return host_distro, host_release, host_arch
 
 
 def _machine_to_lxc_arch(machine: str) -> str:
@@ -79,10 +69,10 @@ def get_target_info(
     arch: str | None,
 ) -> TargetInfo:
     """Build TargetInfo with optional overrides, using host defaults for unspecified values."""
-    host = _get_host_info()
+    host_distro, host_release, host_arch = _get_host_info()
     return TargetInfo(
-        distro=(distro or host.distro).lower(),
-        release=(release or host.release).lower(),
-        arch=arch or host.arch,
-        host_distro=host.distro,
+        distro=(distro or host_distro).lower(),
+        release=(release or host_release).lower(),
+        arch=arch or host_arch,
+        host_distro=host_distro,
     )

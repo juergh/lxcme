@@ -236,7 +236,7 @@ class TestMainDistroOverrides:
         fedora_target = TargetInfo(distro="fedora", release="40", arch="amd64", host_distro="ubuntu")
         image = MagicMock()
         image.fingerprint = "abc"
-        new_instance = _make_instance(name="fedora-40-amd64", setup_done=False)
+        new_instance = _make_instance(name="fedora-40", setup_done=False)
 
         with (
             patch("lxcme.cli.get_target_info", return_value=fedora_target),
@@ -256,7 +256,7 @@ class TestMainDistroOverrides:
         ):
             runner.invoke(main, ["--distro", "fedora", "--release", "40"], input="y\n")
 
-        assert mock_create.call_args[0][1] == "fedora-40-amd64"
+        assert mock_create.call_args[0][1] == "fedora-40"
 
     def test_debian_instance_name_omits_distro(self) -> None:
         runner = CliRunner()
@@ -264,7 +264,7 @@ class TestMainDistroOverrides:
         debian_target = TargetInfo(distro="debian", release="bookworm", arch="amd64", host_distro="ubuntu")
         image = MagicMock()
         image.fingerprint = "abc"
-        new_instance = _make_instance(name="bookworm-amd64", setup_done=False)
+        new_instance = _make_instance(name="bookworm", setup_done=False)
 
         with (
             patch("lxcme.cli.get_target_info", return_value=debian_target),
@@ -284,14 +284,14 @@ class TestMainDistroOverrides:
         ):
             runner.invoke(main, ["--distro", "debian", "--release", "bookworm"], input="y\n")
 
-        assert mock_create.call_args[0][1] == "bookworm-amd64"
+        assert mock_create.call_args[0][1] == "bookworm"
 
     def test_same_distro_instance_name_omits_distro(self) -> None:
         runner = CliRunner()
         user = _make_user()
         image = MagicMock()
         image.fingerprint = "abc"
-        new_instance = _make_instance(name="noble-amd64", setup_done=False)
+        new_instance = _make_instance(name="noble", setup_done=False)
 
         with (
             patch("lxcme.cli.get_target_info", return_value=_TARGET_UBUNTU),
@@ -311,7 +311,7 @@ class TestMainDistroOverrides:
         ):
             runner.invoke(main, [], input="y\n")
 
-        assert mock_create.call_args[0][1] == "noble-amd64"
+        assert mock_create.call_args[0][1] == "noble"
 
 
 class TestMainDebianChroot:

@@ -76,9 +76,9 @@ class TestGetHostInfo:
         ):
             info = _get_host_info()
 
-        assert info.distro == "ubuntu"
-        assert info.release == "noble"
-        assert info.arch == "amd64"
+        assert info[0] == "ubuntu"
+        assert info[1] == "noble"
+        assert info[2] == "amd64"
 
     def test_fedora_falls_back_to_version_id(self) -> None:
         with (
@@ -87,8 +87,8 @@ class TestGetHostInfo:
         ):
             info = _get_host_info()
 
-        assert info.distro == "fedora"
-        assert info.release == "40"
+        assert info[0] == "fedora"
+        assert info[1] == "40"
 
 
 class TestGetTargetInfo:
@@ -137,15 +137,15 @@ class TestGetTargetInfo:
 class TestTargetInfo:
     def test_instance_alias_ubuntu_omits_distro(self) -> None:
         target = TargetInfo(distro="ubuntu", release="noble", arch="amd64", host_distro="ubuntu")
-        assert target.instance_alias == "noble-amd64"
+        assert target.instance_alias == "noble"
 
     def test_instance_alias_debian_omits_distro(self) -> None:
         target = TargetInfo(distro="debian", release="bookworm", arch="amd64", host_distro="ubuntu")
-        assert target.instance_alias == "bookworm-amd64"
+        assert target.instance_alias == "bookworm"
 
     def test_instance_alias_other_distro_includes_distro(self) -> None:
         target = TargetInfo(distro="fedora", release="40", arch="amd64", host_distro="ubuntu")
-        assert target.instance_alias == "fedora-40-amd64"
+        assert target.instance_alias == "fedora-40"
 
     def test_image_alias_ubuntu_omits_distro(self) -> None:
         target = TargetInfo(distro="ubuntu", release="noble", arch="amd64", host_distro="ubuntu")
