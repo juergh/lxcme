@@ -1,14 +1,14 @@
 # lxcme
 
-A CLI tool to manage LXC containers with seamless user and home directory integration.
+A CLI tool to manage LXD containers with seamless user and optional home directory integration.
 
-`lxcme` launches and enters LXC containers that feel like your local machine: your user, your home directory, your uid/gid — all mapped correctly into the container.
+`lxcme` launches and enters LXD containers that feel like your local machine: your user, your uid/gid, and optionally your home directory are mapped into the container.
 
 ## Requirements
 
 - LXD installed and running
 - `lxc` CLI available on `$PATH`
-- Python 3.11+
+- Python 3.12+
 
 ## Installation
 
@@ -27,8 +27,10 @@ uv tool install .
 ## Usage
 
 ```
-lxcme [options] [instance_name] [[--] command [args...]]
+lxcme [options] [instance_name] [--] [command [args...]]
 ```
+
+Without `--`, the first positional argument is the instance name and the remaining arguments are the command. Use `--` before the command whenever it takes options of its own, for example `lxcme -- ls -la` or `lxcme my-box -- python3 script.py`.
 
 ### Options
 
@@ -36,19 +38,21 @@ lxcme [options] [instance_name] [[--] command [args...]]
 |---|---|
 | `--distro DISTRO` | Override host distribution name |
 | `--release RELEASE` | Override host release name |
-| `--arch ARCH` | Override host architecture |
 | `--root` | Run command as root inside the instance |
 | `--mount HOST[:INST]` | Add a directory mount. Repeatable. If `INST` is omitted, `HOST` is used as the instance path. |
-| `--clear-mounts` | Remove all existing mounts before adding new ones. |
+| `--home HOST` | Mount `HOST` at the user's home directory inside the instance. |
+| `--work` | Mount the current directory at `/work-<hash>` and use it as the working directory. |
+| `--clear-mounts` | Remove all lxcme-managed mounts before adding new ones. Affects every process using the instance. |
 | `--env KEY=VALUE` | Set an environment variable inside the instance. Repeatable. |
-| `--cwd PATH` | Set the working directory inside the instance (default: user home dir; `/` when `--root` is used without `--cwd`). |
-| `--wait` | Wait for interactive session to exit instead of replacing process. Useful for wrapper scripts. |
+| `--cwd PATH` | Set the working directory inside the instance. |
+| `--wait` | Wait for interactive session to exit instead of replacing the process. Useful for wrapper scripts. |
+| `--version` | Show the version and exit. |
 | `-v / --verbose` | Enable debug logging |
 
 ### Examples
 
 ```bash
-# Enter default instance (distro/release/arch detected from host)
+# Enter default instance (distro/release detected from host)
 lxcme
 
 # Enter a named instance
@@ -56,20 +60,24 @@ lxcme my-box
 
 # Run a non-interactive command
 lxcme my-box -- python3 script.py
+lxcme -- ls -la
 
 # Run as root
 lxcme --root -- apt update
 
-# Add /home/alice mount
-lxcme --mount /home/alice
+# Mount the host home directory as $HOME
+lxcme --home /home/alice
 
 # Mount a project directory at a custom path inside the instance
 lxcme --mount /host/projects:/work
 
+# Mount the current directory and enter it
+lxcme --work my-box
+
 # Add multiple mounts
 lxcme --mount /home/alice --mount /data:/mnt/data
 
-# Remove all mounts
+# Remove all lxcme-managed mounts
 lxcme --clear-mounts
 
 # Replace all mounts with /data
@@ -90,19 +98,19 @@ lxcme --root --cwd /etc -- ls
 
 ### Instance naming
 
-Distro, release, and arch are auto-detected from the host via `/etc/os-release` and `platform.machine()`. If no instance name is given, one is derived automatically:
+Distro, release, and architecture are auto-detected from the host via `/etc/os-release` and `platform.machine()`. If no instance name is given, one is derived automatically:
 
-- **Same distro as host**: `<release>-<arch>` (e.g. `noble-amd64`)
-- **Different distro**: `<distro>-<release>-<arch>` (e.g. `debian-bookworm-amd64`)
+- **Ubuntu/Debian**: `<release>` (e.g. `noble`, `bookworm`)
+- **Other distros**: `<distro>-<release>` (e.g. `fedora-40`)
 
-The image alias used for lookup and download is always the full `<distro>-<release>-<arch>` triple regardless of the host distro.
+The architecture is not part of the instance name. It is part of the local image alias, which is always `<distro>-<release>-<arch>`.
 
 ### Image remotes
 
 | Distro | Remote |
 |---|---|
-| Ubuntu | `ubuntu-daily:` |
-| Everything else | `images:` |
+| Ubuntu | `https://cloud-images.ubuntu.com/daily` |
+| Everything else | `https://images.lxd.canonical.com` |
 
 If the image is not cached locally it is downloaded automatically before the container is created.
 
@@ -116,15 +124,31 @@ The first time an instance is started, `lxcme` provisions it:
 4. Stores the container-side uid/gid in the instance config.
 5. Restarts the container to apply the idmap config.
 
-Setup runs exactly once and is idempotent — tracked via the `user.lxcme.setup-done` instance config key.
+No home directory is created. Use `--home` or `--mount` to provide one. Without a home mount, `HOME` and the default working directory are `/`.
+
+Setup runs exactly once and is idempotent — tracked via the `user.lxcme.setup-done` instance config key. lxcme refuses to modify containers it did not create, identified by the `user.lxcme.managed` config key.
 
 ### Mounts
 
-Directory mounts are managed via `--mount HOST[:INST]`. The `--mount` option is repeatable and always **additive** — each invocation adds a mount if it is not already present. If a mount is already tracked, a warning is printed and no duplicate is created.
+Directory mounts are managed via `--mount HOST[:INST]`. The `--mount` option is repeatable and **additive**: each invocation adds a mount if it is not already present. If the exact mount is already tracked, a warning is printed and no duplicate is created.
 
-Use `--clear-mounts` to remove all existing mounts before applying any `--mount` flags.
+Mounts are instance-global. Replacing a mount affects every process using the container, so lxcme never replaces a mount implicitly. If a different host directory is already mounted at the requested instance path, lxcme exits with an error. Use `--clear-mounts` to explicitly replace mounts.
 
-If `INST` is omitted, `HOST` is used as the path inside the instance.
+`--home HOST` is shorthand for mounting `HOST` at the user's home directory. It is singular:
+
+```bash
+# Add a home mount
+lxcme --home /home/alice
+
+# Replace all mounts with a new home
+lxcme --clear-mounts --home /home/alice
+```
+
+Without a home mount, `HOME` and the default working directory are `/`. If a home mount exists at the user's home path, `HOME` and the default working directory use it.
+
+`--work` mounts the current directory at `/work-<hash>` and uses that as the working directory unless `--cwd` is given.
+
+If `INST` is omitted, `HOST` is used as the path inside the instance. Host paths must exist and be directories; instance paths must be absolute.
 
 ```bash
 # Add /foo mount
@@ -140,7 +164,9 @@ lxcme --clear-mounts --mount /foo
 lxcme --clear-mounts
 ```
 
-Mounts are tracked as LXD disk devices with a `lxcme_` prefix (derived from the instance path). This means existing mounts are discoverable via standard `lxc config device show` output.
+Mounts are tracked as LXD disk devices with a `lxcme_` prefix. New device names include a short hash of the instance path to avoid collisions; existing device names are reused.
+
+`--clear-mounts` is destructive and instance-global. It affects every process using the container and does not prompt.
 
 ### Command execution
 
@@ -150,27 +176,33 @@ Commands are run as the current user inside the container:
 lxc exec <instance> --cwd <cwd> --user <uid> --group <gid> -- <command>
 ```
 
-The working directory defaults to the user's home directory inside the instance, or `/` for root. Use `--cwd PATH` to override for any invocation regardless of `--root`.
+The working directory defaults to the user's home directory when a home mount exists, otherwise `/`. Root always defaults to `/`. Use `--cwd PATH` to override for any invocation regardless of `--root`.
 
 - **Interactive** commands (shells: `bash`, `sh`, `zsh`, `fish`, etc.) use `os.execvp` to replace the current process, giving a proper TTY and correct signal handling.
 - **Non-interactive** commands use `pylxd`'s `execute()`.
 
 Pass `--root` to run as root instead.
 
+### Security notes
+
+- Mounts expose host directories to the container. Only mount directories you trust the container with.
+- The provisioned user gets passwordless `sudo` inside the container.
+- On a shared LXD host, any user in the `lxd` group can access all containers. Use distinct instance names and do not share containers between users.
+
 ## Project layout
 
 ```
 src/lxcme/
 ├── cli.py        # click entrypoint
-├── host.py       # host detection (HostInfo) and target configuration (TargetInfo)
+├── target.py     # host detection and target configuration (TargetInfo)
 ├── images.py     # local image lookup and remote download
 ├── instances.py  # container lifecycle and exec
-└── users.py      # first-launch provisioning
+└── users.py      # first-launch provisioning and mount reconciliation
 tests/
 ├── test_cli.py
-├── test_host.py
 ├── test_images.py
 ├── test_instances.py
+├── test_target.py
 └── test_users.py
 ```
 
@@ -190,4 +222,3 @@ uv run ruff format src/ tests/
 # Type checking
 uv run mypy src/lxcme/
 ```
-
