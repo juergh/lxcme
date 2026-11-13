@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import grp
+import hashlib
 import logging
 import os
 import pwd
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
+import pylxd.exceptions
 import pylxd.models
 
 logger = logging.getLogger(__name__)
@@ -131,9 +134,10 @@ def configure_idmap(
 
 
 def _mount_device_name(instance_path: str) -> str:
-    """Derive a stable LXD device name from an instance path."""
-    slug = instance_path.strip("/").replace("/", "_").replace("@", "_") or "root"
-    return f"{DEVICE_PREFIX}{slug}"
+    """Derive a safe, unique LXD device name from an instance path."""
+    slug = re.sub(r"[^A-Za-z0-9_.-]+", "_", instance_path.strip("/")) or "root"
+    digest = hashlib.sha256(instance_path.encode()).hexdigest()[:8]
+    return f"{DEVICE_PREFIX}{slug[:48]}_{digest}"
 
 
 def get_tracked_mounts(instance: pylxd.models.Instance) -> list[tuple[str, str]]:
@@ -141,30 +145,76 @@ def get_tracked_mounts(instance: pylxd.models.Instance) -> list[tuple[str, str]]
     mounts = []
     for name, dev in instance.devices.items():
         if name.startswith(DEVICE_PREFIX) and dev.get("type") == "disk":
-            mounts.append((dev["source"], dev["path"]))
+            source = dev.get("source")
+            path = dev.get("path")
+            if source is not None and path is not None:
+                mounts.append((source, path))
+            else:
+                logger.debug("Ignoring malformed disk device '%s'.", name)
     return mounts
 
 
-def sync_mounts(instance: pylxd.models.Instance, mounts: list[tuple[str, str]]) -> bool:
+def sync_mounts(
+    instance: pylxd.models.Instance,
+    mounts: list[tuple[str, str]],
+    *,
+    replace: bool = False,
+) -> bool:
     """Reconcile instance disk devices against desired mounts.
 
     Each mount is a (host_path, instance_path) pair. Devices are identified
-    by the lxcme_ prefix. Returns True if any change was made.
+    by the lxcme_ prefix. Existing mounts are never replaced implicitly unless
+    replace is True; conflicting mounts raise ValueError. Returns True if any
+    change was made.
     """
-    desired: dict[str, tuple[str, str]] = {
-        _mount_device_name(instance_path): (host_path, instance_path) for host_path, instance_path in mounts
-    }
+    desired_pairs: dict[str, str] = {}
+    for host_path, instance_path in mounts:
+        existing_host = desired_pairs.get(instance_path)
+        if existing_host is not None and existing_host != host_path:
+            raise ValueError(
+                f"Conflicting mounts for instance path '{instance_path}': '{existing_host}' and '{host_path}'."
+            )
+        desired_pairs[instance_path] = host_path
 
+    tracked_names = {
+        name for name, dev in instance.devices.items() if name.startswith(DEVICE_PREFIX) and dev.get("type") == "disk"
+    }
     current: dict[str, tuple[str, str]] = {
         name: (dev["source"], dev["path"])
         for name, dev in instance.devices.items()
-        if name.startswith(DEVICE_PREFIX) and dev.get("type") == "disk"
+        if name in tracked_names and "source" in dev and "path" in dev
     }
 
-    if desired == current:
+    current_by_path: dict[str, tuple[str, tuple[str, str]]] = {}
+    if not replace:
+        for name, pair in current.items():
+            instance_path = pair[1]
+            if instance_path in current_by_path:
+                raise ValueError(f"Multiple devices mount instance path '{instance_path}'.")
+            current_by_path[instance_path] = (name, pair)
+
+    desired: dict[str, tuple[str, str]] = {}
+    for instance_path, host_path in desired_pairs.items():
+        pair = (host_path, instance_path)
+        current_entry = current_by_path.get(instance_path)
+        if current_entry is not None:
+            name, current_pair = current_entry
+            if current_pair != pair:
+                raise ValueError(
+                    f"Refusing to replace mount at '{instance_path}': '{current_pair[0]}' is already mounted there."
+                )
+            desired[name] = pair
+            continue
+
+        name = _mount_device_name(instance_path)
+        if (name in current and not replace) or name in desired:
+            raise ValueError(f"Device name collision for instance path '{instance_path}'.")
+        desired[name] = pair
+
+    if desired == current and set(desired) == tracked_names:
         return False
 
-    for name in current:
+    for name in tracked_names:
         if name not in desired:
             instance.devices.pop(name, None)
             logger.info("Detached device '%s'.", name)
@@ -181,27 +231,34 @@ def sync_mounts(instance: pylxd.models.Instance, mounts: list[tuple[str, str]]) 
 
 
 def _sudoers_filename(username: str) -> str:
-    """Derive a valid /etc/sudoers.d filename from a username.
-
-    sudo ignores files whose names contain a '.', so replace dots with '_'.
-    """
-    return username.replace(".", "_")
+    """Derive a safe /etc/sudoers.d filename from a username."""
+    return re.sub(r"[^A-Za-z0-9_-]", "_", username) or "lxcme-user"
 
 
 def setup_passwordless_sudo(instance: pylxd.models.Instance, username: str) -> None:
     """Configure passwordless sudo for user inside instance."""
+    if not re.fullmatch(r"[A-Za-z0-9_.@-]+", username):
+        raise RuntimeError(f"Unsupported username for sudoers: {username!r}")
     sudoers_entry = f"{username} ALL=(ALL) NOPASSWD:ALL\n"
     sudoers_path = f"/etc/sudoers.d/{_sudoers_filename(username)}"
 
-    rc, _, stderr = _exec_in(
-        instance,
-        ["bash", "-c", f"echo '{sudoers_entry}' > {sudoers_path} && chmod 440 {sudoers_path}"],
-    )
+    rc, _, stderr = _exec_in(instance, ["mkdir", "-p", "/etc/sudoers.d"])
     if rc != 0:
-        raise RuntimeError(f"Failed to write sudoers file: {stderr.strip()}")
+        raise RuntimeError(f"Failed to create /etc/sudoers.d: {stderr.strip()}")
+
+    try:
+        instance.files.put(sudoers_path, sudoers_entry, mode=0o440)
+    except (OSError, pylxd.exceptions.LXDAPIException) as exc:
+        raise RuntimeError(f"Failed to write sudoers file: {exc}") from exc
+
+    rc, _, stderr = _exec_in(instance, ["visudo", "-cf", sudoers_path])
+    if rc != 0:
+        raise RuntimeError(f"Invalid sudoers file '{sudoers_path}': {stderr.strip()}")
 
     # Best-effort: add to sudo group (may not exist on all distros)
-    _exec_in(instance, ["usermod", "-aG", "sudo", username])
+    rc, _, stderr = _exec_in(instance, ["usermod", "-aG", "sudo", username])
+    if rc != 0:
+        logger.debug("Could not add '%s' to the sudo group: %s", username, stderr.strip())
 
     logger.info("Configured passwordless sudo for user '%s'.", username)
 
@@ -209,7 +266,11 @@ def setup_passwordless_sudo(instance: pylxd.models.Instance, username: str) -> N
 def is_setup_done(instance: pylxd.models.Instance) -> bool:
     """Check whether first-launch user setup has been performed."""
     instance.sync()
-    return str(instance.config.get(SETUP_DONE_KEY, "")) == "true"
+    return (
+        str(instance.config.get(SETUP_DONE_KEY, "")) == "true"
+        and INSTANCE_UID_KEY in instance.config
+        and INSTANCE_GID_KEY in instance.config
+    )
 
 
 def mark_setup_done(instance: pylxd.models.Instance, instance_uid: int, instance_gid: int) -> None:
@@ -225,8 +286,11 @@ def get_instance_user_ids(instance: pylxd.models.Instance) -> tuple[int, int]:
 
     Callers must ensure the instance is synced before calling this function.
     """
-    uid = int(instance.config[INSTANCE_UID_KEY])
-    gid = int(instance.config[INSTANCE_GID_KEY])
+    try:
+        uid = int(instance.config[INSTANCE_UID_KEY])
+        gid = int(instance.config[INSTANCE_GID_KEY])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise RuntimeError(f"Instance '{instance.name}' is missing stored uid/gid; re-run first-launch setup.") from exc
     return uid, gid
 
 
@@ -239,7 +303,9 @@ def setup_instance_user(
 
     # Step 1: ensure instance is running for user/group introspection and in-instance setup
     instance.sync()
-    if instance.status != "Running":
+    if instance.status == "Frozen":
+        instance.unfreeze(wait=True)
+    elif instance.status != "Running":
         instance.start(wait=True)
 
     # Step 2: ensure group and user

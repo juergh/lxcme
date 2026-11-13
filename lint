@@ -1,7 +1,8 @@
 #!/bin/bash
+set -euo pipefail
 
-echo "II: ruff format"
-uv run ruff format
+echo "II: ruff format --check"
+uv run ruff format --check
 
 echo
 echo "II: ruff check"

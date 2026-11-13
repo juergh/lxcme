@@ -6,6 +6,7 @@ build-backend = "hatchling.build"
 name = "lxcme"
 version = "0.1.0"
 description = "A CLI tool to manage LXC instances with seamless user and home directory integration"
+readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "click>=8.1",
@@ -18,10 +19,8 @@ lxcme = "lxcme.cli:main"
 [dependency-groups]
 dev = [
     "pytest>=8.0",
-    "pytest-mock>=3.12",
     "mypy>=1.9",
     "ruff>=0.4",
-    "types-requests>=2.31",
 ]
 
 [tool.ruff]

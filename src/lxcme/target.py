@@ -13,7 +13,6 @@ class TargetInfo:
     distro: str
     release: str
     arch: str
-    host_distro: str
 
     @property
     def instance_alias(self) -> str:
@@ -37,7 +36,7 @@ def _parse_os_release() -> dict[str, str]:
             if not line or line.startswith("#") or "=" not in line:
                 continue
             key, _, value = line.partition("=")
-            result[key.strip()] = value.strip().strip('"')
+            result[key.strip()] = value.strip().strip("\"'")
     return result
 
 
@@ -54,7 +53,10 @@ def _machine_to_lxc_arch(machine: str) -> str:
     """Translate platform.machine() output to LXC architecture alias."""
     mapping = {
         "x86_64": "amd64",
+        "i386": "i386",
+        "i686": "i386",
         "aarch64": "arm64",
+        "armv6l": "armhf",
         "armv7l": "armhf",
         "ppc64le": "ppc64el",
         "s390x": "s390x",
@@ -63,16 +65,13 @@ def _machine_to_lxc_arch(machine: str) -> str:
     return mapping.get(machine, machine)
 
 
-def get_target_info(
-    distro: str | None,
-    release: str | None,
-    arch: str | None,
-) -> TargetInfo:
+def get_target_info(distro: str | None, release: str | None) -> TargetInfo:
     """Build TargetInfo with optional overrides, using host defaults for unspecified values."""
     host_distro, host_release, host_arch = _get_host_info()
-    return TargetInfo(
-        distro=(distro or host_distro).lower(),
-        release=(release or host_release).lower(),
-        arch=arch or host_arch,
-        host_distro=host_distro,
-    )
+    resolved_distro = (distro or host_distro).strip().lower()
+    resolved_release = (release or host_release).strip().lower()
+    if not resolved_distro:
+        raise ValueError("Could not determine the target distribution; use --distro.")
+    if not resolved_release:
+        raise ValueError("Could not determine the target release; use --release.")
+    return TargetInfo(distro=resolved_distro, release=resolved_release, arch=host_arch)

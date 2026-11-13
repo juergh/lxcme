@@ -52,12 +52,31 @@ def create_instance(
 
 
 def ensure_running(instance: pylxd.models.Instance) -> None:
-    """Start the instance if it is not already running."""
+    """Start or unfreeze the instance so it is running."""
     instance.sync()
-    if instance.status != "Running":
-        logger.info("Starting instance '%s'...", instance.name)
-        instance.start(wait=True)
-        logger.info("Instance '%s' is running.", instance.name)
+    if instance.status == "Running":
+        return
+    if instance.status == "Frozen":
+        logger.info("Unfreezing instance '%s'...", instance.name)
+        instance.unfreeze(wait=True)
+        return
+    if instance.status == "Error":
+        raise RuntimeError(f"Instance '{instance.name}' is in an error state.")
+    logger.info("Starting instance '%s'...", instance.name)
+    instance.start(wait=True)
+    logger.info("Instance '%s' is running.", instance.name)
+
+
+def _resolved_home(user: User, home_path: str | None) -> str:
+    """Return the home path to use inside the instance."""
+    return home_path if home_path is not None else str(user.home)
+
+
+def _effective_cwd(as_root: bool, cwd: str | None, home: str) -> str:
+    """Return the working directory for a command."""
+    if cwd is not None:
+        return cwd
+    return "/" if as_root else home
 
 
 def exec_interactive(
@@ -70,12 +89,12 @@ def exec_interactive(
     as_root: bool,
     extra_env: dict[str, str] | None = None,
     cwd: str | None = None,
+    home_path: str | None = None,
 ) -> None:
     """Replace current process with interactive lxc exec session (never returns)."""
     argv = ["lxc", "exec", instance_name]
-
-    effective_cwd = cwd if cwd is not None else str(user.home)
-    argv += ["--cwd", effective_cwd]
+    home = _resolved_home(user, home_path)
+    argv += ["--cwd", _effective_cwd(as_root, cwd, home)]
 
     if not as_root:
         argv += [
@@ -84,7 +103,7 @@ def exec_interactive(
             "--group",
             str(instance_gid),
             "--env",
-            f"HOME={user.home}",
+            f"HOME={home}",
             "--env",
             f"USER={user.username}",
             "--env",
@@ -95,7 +114,10 @@ def exec_interactive(
         argv += ["--env", f"{key}={value}"]
 
     argv += ["--"] + command
-    os.execvp("lxc", argv)
+    try:
+        os.execvp("lxc", argv)
+    except FileNotFoundError as exc:
+        raise RuntimeError("The 'lxc' command was not found on PATH.") from exc
 
 
 def exec_interactive_wait(
@@ -108,12 +130,12 @@ def exec_interactive_wait(
     as_root: bool,
     extra_env: dict[str, str] | None = None,
     cwd: str | None = None,
+    home_path: str | None = None,
 ) -> int:
     """Run interactive lxc exec session via subprocess, returning exit code."""
     argv = ["lxc", "exec", instance_name]
-
-    effective_cwd = cwd if cwd is not None else str(user.home)
-    argv += ["--cwd", effective_cwd]
+    home = _resolved_home(user, home_path)
+    argv += ["--cwd", _effective_cwd(as_root, cwd, home)]
 
     if not as_root:
         argv += [
@@ -122,7 +144,7 @@ def exec_interactive_wait(
             "--group",
             str(instance_gid),
             "--env",
-            f"HOME={user.home}",
+            f"HOME={home}",
             "--env",
             f"USER={user.username}",
             "--env",
@@ -133,7 +155,10 @@ def exec_interactive_wait(
         argv += ["--env", f"{key}={value}"]
 
     argv += ["--"] + command
-    result = subprocess.run(argv)
+    try:
+        result = subprocess.run(argv)
+    except FileNotFoundError as exc:
+        raise RuntimeError("The 'lxc' command was not found on PATH.") from exc
     return result.returncode
 
 
@@ -147,16 +172,18 @@ def exec_noninteractive(
     as_root: bool,
     extra_env: dict[str, str] | None = None,
     cwd: str | None = None,
+    home_path: str | None = None,
 ) -> tuple[int, str, str]:
     """Run command non-interactively inside instance, returning (exit_code, stdout, stderr)."""
     uid = 0 if as_root else instance_uid
     gid = 0 if as_root else instance_gid
-    effective_cwd = cwd if cwd is not None else ("/" if as_root else str(user.home))
+    home = _resolved_home(user, home_path)
+    effective_cwd = _effective_cwd(as_root, cwd, home)
     env: dict[str, str] = (
         {}
         if as_root
         else {
-            "HOME": str(user.home),
+            "HOME": home,
             "USER": user.username,
             "LOGNAME": user.username,
         }
