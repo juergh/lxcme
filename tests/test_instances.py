@@ -92,6 +92,22 @@ class TestEnsureRunning:
         ensure_running(instance)
         instance.start.assert_not_called()
 
+    def test_unfreezes_frozen_instance(self) -> None:
+        instance = MagicMock()
+        instance.status = "Frozen"
+
+        ensure_running(instance)
+        instance.unfreeze.assert_called_once_with(wait=True)
+        instance.start.assert_not_called()
+
+    def test_raises_for_error_instance(self) -> None:
+        instance = MagicMock()
+        instance.name = "broken"
+        instance.status = "Error"
+
+        with pytest.raises(RuntimeError, match="error state"):
+            ensure_running(instance)
+
 
 class TestExecInteractive:
     def test_execvp_called_as_user(self) -> None:
@@ -188,21 +204,50 @@ class TestExecInteractive:
         idx = argv.index("--cwd")
         assert argv[idx + 1] == "/custom/path"
 
-    def test_cwd_not_in_argv_when_root_no_cwd(self) -> None:
+    def test_cwd_defaults_to_root_as_root(self) -> None:
         user = _make_user()
         with patch("os.execvp") as mock_exec:
             exec_interactive("mybox", user, ["bash", "--login"], 1000, 1000, as_root=True)
 
         argv = mock_exec.call_args[0][1]
         idx = argv.index("--cwd")
-        assert argv[idx + 1] == str(user.home)
+        assert argv[idx + 1] == "/"
 
+    def test_no_debian_chroot_by_default(self) -> None:
         user = _make_user()
         with patch("os.execvp") as mock_exec:
             exec_interactive("mybox", user, ["bash", "--login"], 1000, 1000, as_root=False)
 
         argv = mock_exec.call_args[0][1]
         assert not any("debian_chroot" in arg for arg in argv)
+
+    def test_home_path_used_for_cwd_and_home(self) -> None:
+        user = _make_user()
+        with patch("os.execvp") as mock_exec:
+            exec_interactive(
+                "mybox",
+                user,
+                ["bash", "--login"],
+                1000,
+                1000,
+                as_root=False,
+                home_path="/home/alice",
+            )
+
+        argv = mock_exec.call_args[0][1]
+        idx = argv.index("--cwd")
+        assert argv[idx + 1] == "/home/alice"
+        assert "HOME=/home/alice" in argv
+
+    def test_no_home_uses_root_for_cwd_and_home(self) -> None:
+        user = _make_user()
+        with patch("os.execvp") as mock_exec:
+            exec_interactive("mybox", user, ["bash", "--login"], 1000, 1000, as_root=False, home_path="/")
+
+        argv = mock_exec.call_args[0][1]
+        idx = argv.index("--cwd")
+        assert argv[idx + 1] == "/"
+        assert "HOME=/" in argv
 
     def test_multiple_extra_env_vars(self) -> None:
         user = _make_user()
@@ -220,6 +265,12 @@ class TestExecInteractive:
         argv = mock_exec.call_args[0][1]
         assert "FOO=bar" in argv
         assert "BAZ=qux" in argv
+
+    def test_missing_lxc_raises_runtime_error(self) -> None:
+        user = _make_user()
+        with patch("os.execvp", side_effect=FileNotFoundError):
+            with pytest.raises(RuntimeError, match="not found on PATH"):
+                exec_interactive("mybox", user, ["bash"], 1000, 1000, as_root=False)
 
 
 class TestExecNoninteractive:
@@ -310,6 +361,28 @@ class TestExecNoninteractive:
         exec_noninteractive(instance, user, ["pwd"], 1000, 1000, as_root=True, cwd="/custom/path")
 
         assert instance.execute.call_args[1]["cwd"] == "/custom/path"
+
+    def test_no_home_uses_root_for_cwd_and_home(self) -> None:
+        instance = MagicMock()
+        result = MagicMock(exit_code=0, stdout="", stderr="")
+        instance.execute.return_value = result
+
+        user = _make_user()
+        exec_noninteractive(instance, user, ["pwd"], 1000, 1000, as_root=False, home_path="/")
+
+        assert instance.execute.call_args[1]["cwd"] == "/"
+        assert instance.execute.call_args[1]["environment"]["HOME"] == "/"
+
+    def test_home_path_used_for_cwd_and_home(self) -> None:
+        instance = MagicMock()
+        result = MagicMock(exit_code=0, stdout="", stderr="")
+        instance.execute.return_value = result
+
+        user = _make_user()
+        exec_noninteractive(instance, user, ["pwd"], 1000, 1000, as_root=False, home_path="/home/alice")
+
+        assert instance.execute.call_args[1]["cwd"] == "/home/alice"
+        assert instance.execute.call_args[1]["environment"]["HOME"] == "/home/alice"
 
     def test_extra_env_merged_as_user(self) -> None:
         instance = MagicMock()
@@ -407,6 +480,17 @@ class TestExecInteractiveWait:
         idx = argv.index("--cwd")
         assert argv[idx + 1] == "/custom/path"
 
+    def test_home_path_used_for_cwd_and_home(self) -> None:
+        user = _make_user()
+        with patch("lxcme.instances.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            exec_interactive_wait("mybox", user, ["bash"], 1000, 1000, as_root=False, home_path="/")
+
+        argv = mock_run.call_args[0][0]
+        idx = argv.index("--cwd")
+        assert argv[idx + 1] == "/"
+        assert "HOME=/" in argv
+
     def test_runs_as_root(self) -> None:
         user = _make_user()
         with patch("lxcme.instances.subprocess.run") as mock_run:
@@ -416,6 +500,12 @@ class TestExecInteractiveWait:
         argv = mock_run.call_args[0][0]
         assert "--user" not in argv
         assert "--group" not in argv
+
+    def test_missing_lxc_raises_runtime_error(self) -> None:
+        user = _make_user()
+        with patch("lxcme.instances.subprocess.run", side_effect=FileNotFoundError):
+            with pytest.raises(RuntimeError, match="not found on PATH"):
+                exec_interactive_wait("mybox", user, ["bash"], 1000, 1000, as_root=False)
 
 
 class TestIsInteractive:

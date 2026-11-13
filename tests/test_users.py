@@ -13,6 +13,7 @@ from lxcme.users import (
     INSTANCE_UID_KEY,
     SETUP_DONE_KEY,
     User,
+    _mount_device_name,
     _sudoers_filename,
     configure_idmap,
     ensure_group,
@@ -128,12 +129,13 @@ class TestSyncMounts:
         instance = MagicMock()
         instance.config = {}
         instance.devices = {}
+        device_name = _mount_device_name("/inst/foo")
 
         changed = sync_mounts(instance, [("/host/foo", "/inst/foo")])
 
         assert changed is True
-        assert instance.devices[f"{DEVICE_PREFIX}inst_foo"]["source"] == "/host/foo"
-        assert instance.devices[f"{DEVICE_PREFIX}inst_foo"]["path"] == "/inst/foo"
+        assert instance.devices[device_name]["source"] == "/host/foo"
+        assert instance.devices[device_name]["path"] == "/inst/foo"
         instance.save.assert_called_once_with(wait=True)
         instance.sync.assert_called_once()
 
@@ -149,6 +151,16 @@ class TestSyncMounts:
         assert changed is True
         assert f"{DEVICE_PREFIX}inst_old" not in instance.devices
         instance.sync.assert_called_once()
+
+    def test_removes_malformed_tracked_device(self) -> None:
+        instance = MagicMock()
+        instance.config = {}
+        instance.devices = {f"{DEVICE_PREFIX}broken": {"type": "disk"}}
+
+        changed = sync_mounts(instance, [])
+
+        assert changed is True
+        assert f"{DEVICE_PREFIX}broken" not in instance.devices
 
     def test_no_change_returns_false(self) -> None:
         instance = MagicMock()
@@ -167,29 +179,61 @@ class TestSyncMounts:
         instance = MagicMock()
         instance.config = {}
         instance.devices = {}
+        device_name = _mount_device_name("/home/alice")
 
         sync_mounts(instance, [("/home/alice", "/home/alice")])
 
-        device = instance.devices[f"{DEVICE_PREFIX}home_alice"]
+        device = instance.devices[device_name]
         assert device["source"] == "/home/alice"
         assert device["path"] == "/home/alice"
 
-    def test_replaces_changed_mount(self) -> None:
+    def test_refuses_to_replace_mount_at_same_path(self) -> None:
         instance = MagicMock()
         instance.config = {}
         instance.devices = {
-            f"{DEVICE_PREFIX}old_path": {"type": "disk", "source": "/host/foo", "path": "/old/path"},
+            f"{DEVICE_PREFIX}old_path": {"type": "disk", "source": "/host/foo", "path": "/shared"},
         }
 
-        changed = sync_mounts(instance, [("/host/foo", "/new/path")])
+        with pytest.raises(ValueError, match="Refusing to replace"):
+            sync_mounts(instance, [("/host/bar", "/shared")])
+
+        instance.save.assert_not_called()
+
+    def test_rejects_conflicting_desired_paths(self) -> None:
+        instance = MagicMock()
+        instance.config = {}
+        instance.devices = {}
+
+        with pytest.raises(ValueError, match="Conflicting mounts"):
+            sync_mounts(instance, [("/host/a", "/same"), ("/host/b", "/same")])
+
+    def test_replace_allows_changing_mount_source(self) -> None:
+        instance = MagicMock()
+        instance.config = {}
+        instance.devices = {
+            f"{DEVICE_PREFIX}old": {"type": "disk", "source": "/old", "path": "/shared"},
+        }
+
+        changed = sync_mounts(instance, [("/new", "/shared")], replace=True)
 
         assert changed is True
-        assert f"{DEVICE_PREFIX}old_path" not in instance.devices
-        assert instance.devices[f"{DEVICE_PREFIX}new_path"]["source"] == "/host/foo"
-        assert instance.devices[f"{DEVICE_PREFIX}new_path"]["path"] == "/new/path"
-        instance.sync.assert_called_once()
+        assert instance.devices[_mount_device_name("/shared")]["source"] == "/new"
+        assert f"{DEVICE_PREFIX}old" not in instance.devices
+        instance.save.assert_called_once_with(wait=True)
 
-    def test_does_not_update_unchanged_mounts(self) -> None:
+    def test_replace_overwrites_same_device_name(self) -> None:
+        instance = MagicMock()
+        instance.config = {}
+        instance.devices = {
+            _mount_device_name("/shared"): {"type": "disk", "source": "/old", "path": "/shared"},
+        }
+
+        changed = sync_mounts(instance, [("/new", "/shared")], replace=True)
+
+        assert changed is True
+        assert instance.devices[_mount_device_name("/shared")]["source"] == "/new"
+
+    def test_reuses_existing_device_name_for_unchanged_mount(self) -> None:
         instance = MagicMock()
         instance.config = {}
         instance.devices = {
@@ -203,7 +247,7 @@ class TestSyncMounts:
             "source": "/home/alice",
             "path": "/home/alice",
         }
-        assert instance.devices[f"{DEVICE_PREFIX}inst_new"]["source"] == "/host/new"
+        assert instance.devices[_mount_device_name("/inst/new")]["source"] == "/host/new"
 
 
 class TestGetTrackedMounts:
@@ -244,9 +288,10 @@ class TestSudoersFilename:
         assert _sudoers_filename("alice") == "alice"
 
     def test_corporate_username_sanitized(self) -> None:
-        # sudo ignores files in /etc/sudoers.d containing '.', so the dots in
-        # first.last@domain.com must be replaced for the file to be read.
-        assert _sudoers_filename("first.last@domain.com") == "first_last@domain_com"
+        assert _sudoers_filename("first.last@domain.com") == "first_last_domain_com"
+
+    def test_trailing_tilde_sanitized(self) -> None:
+        assert _sudoers_filename("alice~") == "alice_"
 
 
 class TestSetupPasswordlessSudo:
@@ -256,27 +301,60 @@ class TestSetupPasswordlessSudo:
 
         setup_passwordless_sudo(instance, "alice")
 
+        instance.files.put.assert_called_once_with(
+            "/etc/sudoers.d/alice",
+            "alice ALL=(ALL) NOPASSWD:ALL\n",
+            mode=0o440,
+        )
         calls = [str(c[0][0]) for c in instance.execute.call_args_list]
-        assert any("sudoers" in c for c in calls)
+        assert any("visudo" in c for c in calls)
         assert any("usermod" in c for c in calls)
 
     def test_raises_on_sudoers_write_failure(self) -> None:
         instance = MagicMock()
-        instance.execute.return_value = _make_exec_result(exit_code=1, stderr="read-only")
+        instance.execute.return_value = _make_exec_result(exit_code=0)
+        instance.files.put.side_effect = OSError("read-only")
 
         with pytest.raises(RuntimeError, match="Failed to write sudoers"):
             setup_passwordless_sudo(instance, "alice")
+
+    def test_raises_on_invalid_sudoers(self) -> None:
+        instance = MagicMock()
+        instance.execute.side_effect = [
+            _make_exec_result(exit_code=0),  # mkdir
+            _make_exec_result(exit_code=1, stderr="syntax error"),  # visudo
+        ]
+
+        with pytest.raises(RuntimeError, match="Invalid sudoers"):
+            setup_passwordless_sudo(instance, "alice")
+
+    def test_rejects_unsafe_username(self) -> None:
+        instance = MagicMock()
+
+        with pytest.raises(RuntimeError, match="Unsupported username"):
+            setup_passwordless_sudo(instance, "alice\nALL=(ALL) NOPASSWD:ALL")
+
+        instance.files.put.assert_not_called()
 
 
 class TestIsSetupDone:
     def test_returns_true_when_marked(self) -> None:
         instance = MagicMock()
-        instance.config = {SETUP_DONE_KEY: "true"}
+        instance.config = {
+            SETUP_DONE_KEY: "true",
+            INSTANCE_UID_KEY: "1000",
+            INSTANCE_GID_KEY: "1000",
+        }
         assert is_setup_done(instance) is True
 
     def test_returns_false_when_not_marked(self) -> None:
         instance = MagicMock()
         instance.config = {}
+        assert is_setup_done(instance) is False
+
+    def test_returns_false_when_uid_gid_missing(self) -> None:
+        instance = MagicMock()
+        instance.config = {SETUP_DONE_KEY: "true"}
         assert is_setup_done(instance) is False
 
 
@@ -306,7 +384,7 @@ class TestGetInstanceUserIds:
         instance = MagicMock()
         instance.config = {}
 
-        with pytest.raises(KeyError):
+        with pytest.raises(RuntimeError, match="missing stored uid/gid"):
             get_instance_user_ids(instance)
 
 
@@ -320,7 +398,8 @@ class TestSetupInstanceUser:
         instance.execute.side_effect = [
             _make_exec_result(stdout="alice:x:1000:\n"),  # getent group
             _make_exec_result(stdout="1000\n"),  # id -u
-            _make_exec_result(exit_code=0),  # bash sudoers
+            _make_exec_result(exit_code=0),  # mkdir sudoers.d
+            _make_exec_result(exit_code=0),  # visudo
             _make_exec_result(exit_code=0),  # usermod -aG sudo
         ]
 
