@@ -32,6 +32,7 @@ from lxcme.users import (
     get_instance_user_ids,
     get_tracked_mounts,
     is_setup_done,
+    mount_conflict_message,
     setup_instance_user,
     sync_mounts,
 )
@@ -126,10 +127,23 @@ def _work_path_for(cwd: str) -> str:
 
 def _conflict_error(instance_name: str, instance_path: str, existing_host: str, new_host: str) -> click.ClickException:
     """Build an error for an attempt to replace an existing mount."""
-    return click.ClickException(
-        f"Instance '{instance_name}' already has '{existing_host}' mounted at '{instance_path}'. "
-        f"Refusing to replace it with '{new_host}'. Use --clear-mounts to replace mounts."
-    )
+    return click.ClickException(mount_conflict_message(instance_name, instance_path, existing_host, new_host))
+
+
+def _merge_mount_request(
+    desired: list[tuple[str, str]],
+    request: tuple[str, str],
+    instance_name: str,
+) -> None:
+    """Merge a requested mount into the desired list, rejecting conflicts."""
+    host, instance_path = request
+    existing = [pair for pair in desired if pair[1] == instance_path]
+    if not existing:
+        desired.append(request)
+        return
+    if existing != [request]:
+        raise _conflict_error(instance_name, instance_path, existing[0][0], host)
+    logger.warning("Mount already present: %s -> %s", host, instance_path)
 
 
 @click.command(cls=_Command)
@@ -283,36 +297,9 @@ def main(
     ensure_running(instance)
     instance.sync()
 
-    current_mounts = [] if clear_mounts else get_tracked_mounts(instance)
-    desired_mounts = list(current_mounts)
-
-    if home_request is not None:
-        existing_home = [(host, path) for host, path in desired_mounts if path == home_path]
-        if existing_home and existing_home != [home_request]:
-            host, _ = existing_home[0]
-            raise _conflict_error(instance_name, home_path, host, home_request[0])
-        if not existing_home:
-            desired_mounts.append(home_request)
-
-    for request in mount_requests:
-        host, path = request
-        existing = [(old_host, old_path) for old_host, old_path in desired_mounts if old_path == path]
-        if existing:
-            if existing != [request]:
-                old_host, _ = existing[0]
-                raise _conflict_error(instance_name, path, old_host, host)
-            logger.warning("Mount already present: %s -> %s", host, path)
-        else:
-            desired_mounts.append(request)
-
-    if work_request is not None:
-        host, path = work_request
-        existing = [(old_host, old_path) for old_host, old_path in desired_mounts if old_path == path]
-        if existing and existing != [work_request]:
-            old_host, _ = existing[0]
-            raise _conflict_error(instance_name, path, old_host, host)
-        if not existing:
-            desired_mounts.append(work_request)
+    desired_mounts = [] if clear_mounts else get_tracked_mounts(instance)
+    for request in requested_mounts:
+        _merge_mount_request(desired_mounts, request, instance_name)
 
     if clear_mounts or requested_mounts:
         sync_mounts(instance, desired_mounts, replace=clear_mounts)

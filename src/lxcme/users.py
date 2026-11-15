@@ -133,6 +133,14 @@ def configure_idmap(
     logger.info("Configured raw.idmap: %s", idmap.replace("\n", " | "))
 
 
+def mount_conflict_message(instance_name: str, instance_path: str, existing_host: str, new_host: str) -> str:
+    """Build the message for an attempt to replace an existing mount."""
+    return (
+        f"Instance '{instance_name}' already has '{existing_host}' mounted at '{instance_path}'. "
+        f"Refusing to replace it with '{new_host}'. Use --clear-mounts to replace mounts."
+    )
+
+
 def _mount_device_name(instance_path: str) -> str:
     """Derive a safe, unique LXD device name from an instance path."""
     slug = re.sub(r"[^A-Za-z0-9_.-]+", "_", instance_path.strip("/")) or "root"
@@ -200,9 +208,7 @@ def sync_mounts(
         if current_entry is not None:
             name, current_pair = current_entry
             if current_pair != pair:
-                raise ValueError(
-                    f"Refusing to replace mount at '{instance_path}': '{current_pair[0]}' is already mounted there."
-                )
+                raise ValueError(mount_conflict_message(instance.name, instance_path, current_pair[0], host_path))
             desired[name] = pair
             continue
 
