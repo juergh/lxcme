@@ -9,7 +9,7 @@ import click
 import pytest
 from click.testing import CliRunner, Result
 
-from lxcme.cli import _parse_mount, _work_path_for, main
+from lxcme.cli import _canonical_host_dir, _merge_mount_request, _parse_mount, _work_path_for, main
 from lxcme.instances import LXCME_MARKER
 from lxcme.target import TargetInfo
 from lxcme.users import INSTANCE_GID_KEY, INSTANCE_UID_KEY, User
@@ -82,6 +82,51 @@ class TestParseMount:
     def test_normalizes_instance_path(self, tmp_path: Path) -> None:
         _, inst = _parse_mount(f"{tmp_path}:/a/../b")
         assert inst == "/b"
+
+
+class TestCanonicalHostDir:
+    def test_resolves_realpath(self, tmp_path: Path) -> None:
+        target = tmp_path / "foo"
+        target.mkdir()
+        resolved = _canonical_host_dir(f"{tmp_path}/../{tmp_path.name}/foo", "'--home'")
+        assert ".." not in resolved
+        assert resolved == str(target)
+
+    def test_expands_user(self, tmp_path: Path) -> None:
+        target = tmp_path / "home"
+        target.mkdir()
+        with patch.dict("os.environ", {"HOME": str(tmp_path)}):
+            resolved = _canonical_host_dir("~/home", "'--home'")
+        assert resolved == str(target)
+
+    def test_rejects_missing_path(self, tmp_path: Path) -> None:
+        with pytest.raises(click.BadParameter, match="not a directory"):
+            _canonical_host_dir(str(tmp_path / "missing"), "'--home'")
+
+    def test_rejects_file(self, tmp_path: Path) -> None:
+        f = tmp_path / "file"
+        f.write_text("")
+        with pytest.raises(click.BadParameter, match="not a directory"):
+            _canonical_host_dir(str(f), "'--home'")
+
+
+class TestMergeMountRequest:
+    def test_appends_new_request(self) -> None:
+        desired: list[tuple[str, str]] = [("/old", "/old")]
+        _merge_mount_request(desired, ("/new", "/new"), "box")
+        assert desired == [("/old", "/old"), ("/new", "/new")]
+
+    def test_identical_request_is_idempotent_and_warns(self) -> None:
+        desired = [("/data", "/data")]
+        with patch("lxcme.cli.logger") as mock_logger:
+            _merge_mount_request(desired, ("/data", "/data"), "box")
+        assert desired == [("/data", "/data")]
+        mock_logger.warning.assert_called_once()
+
+    def test_conflicting_request_is_rejected(self) -> None:
+        desired = [("/old", "/shared")]
+        with pytest.raises(click.ClickException, match="Refusing to replace"):
+            _merge_mount_request(desired, ("/new", "/shared"), "box")
 
 
 class TestMainExistingInstance:
@@ -929,6 +974,22 @@ class TestMainHome:
 
         assert result.exit_code == 0
         assert mock_sync.call_args[0][1] == [(str(tmp_path), "/home/alice")]
+
+    def test_home_expands_tilde(self, tmp_path: Path) -> None:
+        home = tmp_path / "myhome"
+        home.mkdir()
+        with patch.dict("os.environ", {"HOME": str(tmp_path)}):
+            result, mock_sync, _ = self._run(["--home", "~/myhome"])
+
+        assert result.exit_code == 0
+        assert (str(home), "/home/alice") in mock_sync.call_args[0][1]
+
+    def test_missing_home_is_rejected(self, tmp_path: Path) -> None:
+        result, mock_sync, _ = self._run(["--home", str(tmp_path / "missing")])
+
+        assert result.exit_code != 0
+        assert "not a directory" in result.output
+        mock_sync.assert_not_called()
 
     def test_clear_mounts_then_home_replaces_everything(self, tmp_path: Path) -> None:
         result, mock_sync, _ = self._run(

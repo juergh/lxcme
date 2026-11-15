@@ -22,6 +22,7 @@ from lxcme.users import (
     get_tracked_mounts,
     is_setup_done,
     mark_setup_done,
+    mount_conflict_message,
     setup_instance_user,
     setup_passwordless_sudo,
     sync_mounts,
@@ -189,14 +190,16 @@ class TestSyncMounts:
 
     def test_refuses_to_replace_mount_at_same_path(self) -> None:
         instance = MagicMock()
+        instance.name = "mybox"
         instance.config = {}
         instance.devices = {
             f"{DEVICE_PREFIX}old_path": {"type": "disk", "source": "/host/foo", "path": "/shared"},
         }
 
-        with pytest.raises(ValueError, match="Refusing to replace"):
+        with pytest.raises(ValueError) as excinfo:
             sync_mounts(instance, [("/host/bar", "/shared")])
 
+        assert str(excinfo.value) == mount_conflict_message("mybox", "/shared", "/host/foo", "/host/bar")
         instance.save.assert_not_called()
 
     def test_rejects_conflicting_desired_paths(self) -> None:
@@ -248,6 +251,17 @@ class TestSyncMounts:
             "path": "/home/alice",
         }
         assert instance.devices[_mount_device_name("/inst/new")]["source"] == "/host/new"
+
+
+class TestMountConflictMessage:
+    def test_includes_all_parts(self) -> None:
+        message = mount_conflict_message("mybox", "/shared", "/host/foo", "/host/bar")
+        assert "mybox" in message
+        assert "/shared" in message
+        assert "/host/foo" in message
+        assert "/host/bar" in message
+        assert "Refusing to replace" in message
+        assert "--clear-mounts" in message
 
 
 class TestGetTrackedMounts:

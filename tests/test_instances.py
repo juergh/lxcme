@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from lxcme.instances import (
+    _build_exec_argv,
     create_instance,
     ensure_running,
     exec_interactive,
@@ -107,6 +108,37 @@ class TestEnsureRunning:
 
         with pytest.raises(RuntimeError, match="error state"):
             ensure_running(instance)
+
+
+class TestBuildExecArgv:
+    def test_includes_identity_and_env(self) -> None:
+        argv = _build_exec_argv(
+            "mybox",
+            ["bash", "--login"],
+            "/home/alice",
+            (1000, 1001),
+            {"HOME": "/home/alice"},
+        )
+        assert argv == [
+            "lxc",
+            "exec",
+            "mybox",
+            "--cwd",
+            "/home/alice",
+            "--user",
+            "1000",
+            "--group",
+            "1001",
+            "--env",
+            "HOME=/home/alice",
+            "--",
+            "bash",
+            "--login",
+        ]
+
+    def test_omits_identity_when_none(self) -> None:
+        argv = _build_exec_argv("mybox", ["ls"], "/", None, {})
+        assert argv == ["lxc", "exec", "mybox", "--cwd", "/", "--", "ls"]
 
 
 class TestExecInteractive:
@@ -399,6 +431,25 @@ class TestExecNoninteractive:
         assert env["FOO"] == "bar"
         assert env["HOME"] == str(user.home)
 
+    def test_root_env_is_root_identity(self) -> None:
+        instance = MagicMock()
+        instance.execute.return_value = MagicMock(exit_code=0, stdout="", stderr="")
+
+        user = _make_user()
+        exec_noninteractive(instance, user, ["env"], 1000, 1000, as_root=True)
+
+        env = instance.execute.call_args[1]["environment"]
+        assert env == {"HOME": "/root", "USER": "root", "LOGNAME": "root"}
+
+    def test_root_home_unaffected_by_home_path(self) -> None:
+        instance = MagicMock()
+        instance.execute.return_value = MagicMock(exit_code=0, stdout="", stderr="")
+
+        user = _make_user()
+        exec_noninteractive(instance, user, ["env"], 1000, 1000, as_root=True, home_path="/home/alice")
+
+        assert instance.execute.call_args[1]["environment"]["HOME"] == "/root"
+
     def test_extra_env_merged_as_root(self) -> None:
         instance = MagicMock()
         result = MagicMock()
@@ -412,6 +463,15 @@ class TestExecNoninteractive:
 
         env = instance.execute.call_args[1]["environment"]
         assert env["FOO"] == "bar"
+
+    def test_extra_env_overrides_root_home(self) -> None:
+        instance = MagicMock()
+        instance.execute.return_value = MagicMock(exit_code=0, stdout="", stderr="")
+
+        user = _make_user()
+        exec_noninteractive(instance, user, ["env"], 1000, 1000, as_root=True, extra_env={"HOME": "/custom"})
+
+        assert instance.execute.call_args[1]["environment"]["HOME"] == "/custom"
 
     def test_extra_env_overrides_base_env(self) -> None:
         instance = MagicMock()
