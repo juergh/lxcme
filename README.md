@@ -148,7 +148,7 @@ Without a home mount, `HOME` and the default working directory are `/`. If a hom
 
 `--work` mounts the current directory at `/work-<hash>` and uses that as the working directory unless `--cwd` is given.
 
-If `INST` is omitted, `HOST` is used as the path inside the instance. Host paths must exist and be directories; instance paths must be absolute.
+If `INST` is omitted, `HOST` is used as the path inside the instance. Host paths must exist and be directories; instance paths must be absolute. Host paths support `~` expansion and are canonicalized (symlinks resolved) before use, so `--mount`, `--home`, and `--work` all refer to the same directory regardless of how it is spelled.
 
 ```bash
 # Add /foo mount
@@ -181,7 +181,7 @@ The working directory defaults to the user's home directory when a home mount ex
 - **Interactive** commands (shells: `bash`, `sh`, `zsh`, `fish`, etc.) use `os.execvp` to replace the current process, giving a proper TTY and correct signal handling.
 - **Non-interactive** commands use `pylxd`'s `execute()`.
 
-Pass `--root` to run as root instead.
+Pass `--root` to run as root instead. Non-interactive root commands run with `HOME=/root`, `USER=root`, and `LOGNAME=root`; `--home` does not change root's `HOME`. Use `--env` to override any of these.
 
 ### Security notes
 
