@@ -198,7 +198,7 @@ def exec_noninteractive(
     home = _resolved_home(user, home_path)
     effective_cwd = _effective_cwd(as_root, cwd, home)
     env: dict[str, str] = (
-        {}
+        {"HOME": "/root", "USER": "root", "LOGNAME": "root"}
         if as_root
         else {
             "HOME": home,
