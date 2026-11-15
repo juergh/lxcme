@@ -79,15 +79,21 @@ def _resolve_command(command: tuple[str, ...]) -> list[str]:
     return list(command) if command else ["bash", "--login"]
 
 
+def _canonical_host_dir(value: str, param_hint: str) -> str:
+    """Expand, resolve, and validate a host directory path."""
+    path = os.path.realpath(os.path.expanduser(value))
+    if not os.path.isdir(path):
+        raise click.BadParameter(f"host path is not a directory: {path!r}", param_hint=param_hint)
+    return path
+
+
 def _parse_mount(value: str) -> tuple[str, str]:
     """Parse a --mount value into (host_path, instance_path).
 
     Format: /host[:/instance]. Defaults instance_path to host_path.
     """
     host_path, sep, instance_path = value.partition(":")
-    host_path = os.path.realpath(os.path.expanduser(host_path))
-    if not os.path.isdir(host_path):
-        raise click.BadParameter(f"host path is not a directory: {host_path!r}", param_hint="'--mount'")
+    host_path = _canonical_host_dir(host_path, "'--mount'")
 
     if sep:
         instance_path = os.path.normpath(instance_path)
@@ -141,7 +147,7 @@ def _conflict_error(instance_name: str, instance_path: str, existing_host: str, 
     "home_dir",
     default=None,
     metavar="HOST",
-    type=click.Path(exists=True, file_okay=False, path_type=Path),
+    type=click.Path(path_type=Path),
     help="Host directory to mount as $HOME inside the instance.",
 )
 @click.option(
@@ -222,13 +228,13 @@ def main(
         raise click.BadParameter(f"working directory must be absolute: {cwd!r}", param_hint="'--cwd'")
 
     mount_requests = [_parse_mount(m) for m in mounts]
-    home_request = (os.path.realpath(str(home_dir)), home_path) if home_dir is not None else None
+    home_request = (_canonical_host_dir(str(home_dir), "'--home'"), home_path) if home_dir is not None else None
     if home_request is not None and any(instance_path == home_path for _, instance_path in mount_requests):
         raise click.ClickException("--home and --mount cannot both target the home directory.")
 
     work_request: tuple[str, str] | None = None
     if work:
-        host_cwd = os.getcwd()
+        host_cwd = os.path.realpath(os.getcwd())
         work_path = _work_path_for(host_cwd)
         work_request = (host_cwd, work_path)
         if cwd is None:
