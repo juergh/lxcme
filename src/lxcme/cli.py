@@ -28,6 +28,7 @@ from lxcme.instances import (
 )
 from lxcme.target import get_target_info
 from lxcme.users import (
+    find_in_use_work_mounts,
     get_current_user,
     get_instance_user_ids,
     get_tracked_mounts,
@@ -177,6 +178,12 @@ def _merge_mount_request(
     help="Remove all lxcme-managed mounts. Affects every process using the instance.",
 )
 @click.option(
+    "--prune-work",
+    is_flag=True,
+    default=False,
+    help="Remove --work mounts no process in the instance is using.",
+)
+@click.option(
     "--env",
     "env_vars",
     multiple=True,
@@ -199,6 +206,7 @@ def main(
     home_dir: Path | None,
     work: bool,
     clear_mounts: bool,
+    prune_work: bool,
     env_vars: tuple[str, ...],
     distro: str | None,
     release: str | None,
@@ -225,6 +233,7 @@ def main(
       lxcme --mount /a --mount /b               Add multiple mounts
       lxcme --home /host/home                   Mount /host/home as $HOME
       lxcme --work my-box                       Mount cwd at /work-<hash> and enter
+      lxcme --prune-work                        Remove unused --work mounts
       lxcme --clear-mounts                      Remove all lxcme-managed mounts
       lxcme --clear-mounts --home /host/home    Replace all mounts with a new home
     """
@@ -291,17 +300,38 @@ def main(
     if instance is None:
         raise click.ClickException(f"Failed to find or create instance '{instance_name}'.")
 
-    if not is_setup_done(instance):
+    setup_needed = not is_setup_done(instance)
+    was_running = instance.status == "Running"
+    if setup_needed:
         setup_instance_user(instance, user)
 
     ensure_running(instance)
     instance.sync()
 
-    desired_mounts = [] if clear_mounts else get_tracked_mounts(instance)
+    current_mounts = [] if clear_mounts else get_tracked_mounts(instance)
+    pruned: set[str] = set()
+
+    if prune_work and not clear_mounts:
+        candidates = {path for host, path in current_mounts if path == _work_path_for(host)}
+        protected = {path for _, path in requested_mounts}
+        if cwd is not None:
+            protected.update(path for path in candidates if cwd == path or cwd.startswith(f"{path}/"))
+        candidates -= protected
+
+        if candidates and not was_running:
+            logger.warning("Instance '%s' is not running; skipping work mount prune.", instance_name)
+        elif candidates:
+            in_use = find_in_use_work_mounts(instance, candidates)
+            pruned = candidates - in_use
+            for path in sorted(pruned):
+                logger.info("Removing unused work mount '%s'.", path)
+            current_mounts = [pair for pair in current_mounts if pair[1] not in pruned]
+
+    desired_mounts = list(current_mounts)
     for request in requested_mounts:
         _merge_mount_request(desired_mounts, request, instance_name)
 
-    if clear_mounts or requested_mounts:
+    if clear_mounts or requested_mounts or pruned:
         sync_mounts(instance, desired_mounts, replace=clear_mounts)
 
     home_mounted = any(path == home_path for _, path in desired_mounts)
