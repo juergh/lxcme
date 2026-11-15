@@ -22,6 +22,36 @@ INSTANCE_UID_KEY = "user.lxcme.uid"
 INSTANCE_GID_KEY = "user.lxcme.gid"
 DEVICE_PREFIX = "lxcme_"
 
+# Reports which candidate paths are referenced by processes in the instance.
+# Candidates are passed as positional arguments after $0.
+_WORK_USAGE_PROBE = r"""
+[ -d /proc/1 ] || exit 11
+command -v readlink >/dev/null 2>&1 || exit 13
+[ $# -gt 0 ] || exit 0
+
+matches() {
+  target=${1%" (deleted)"}
+  shift
+  for candidate in "$@"; do
+    case "$target" in
+      "$candidate"|"$candidate"/*) printf '%s\n' "$candidate"; return ;;
+    esac
+  done
+}
+
+for proc in /proc/[0-9]*; do
+  for entry in cwd root exe; do
+    target=$(readlink "$proc/$entry" 2>/dev/null) || continue
+    matches "$target" "$@"
+  done
+  for fd in "$proc"/fd/*; do
+    target=$(readlink "$fd" 2>/dev/null) || continue
+    matches "$target" "$@"
+  done
+done
+exit 0
+"""
+
 
 @dataclass(frozen=True)
 class User:
@@ -47,9 +77,14 @@ def get_current_user() -> User:
     )
 
 
-def _exec_in(instance: pylxd.models.Instance, command: list[str]) -> tuple[int, str, str]:
+def _exec_in(
+    instance: pylxd.models.Instance,
+    command: list[str],
+    *,
+    cwd: str | None = None,
+) -> tuple[int, str, str]:
     """Run command as root inside instance, returning (exit_code, stdout, stderr)."""
-    result = instance.execute(command, user=0)
+    result = instance.execute(command, user=0, cwd=cwd)
     return result.exit_code, result.stdout or "", result.stderr or ""
 
 
@@ -160,6 +195,19 @@ def get_tracked_mounts(instance: pylxd.models.Instance) -> list[tuple[str, str]]
             else:
                 logger.debug("Ignoring malformed disk device '%s'.", name)
     return mounts
+
+
+def find_in_use_work_mounts(instance: pylxd.models.Instance, candidates: set[str]) -> set[str]:
+    """Return the subset of work mount paths referenced by instance processes."""
+    if not candidates:
+        return set()
+
+    command = ["/bin/sh", "-c", _WORK_USAGE_PROBE, "lxcme-probe", *sorted(candidates)]
+    rc, stdout, stderr = _exec_in(instance, command, cwd="/")
+    if rc != 0:
+        detail = stderr.strip() or f"exit code {rc}"
+        raise RuntimeError(f"Failed to inspect work mount usage in instance '{instance.name}': {detail}")
+    return set(stdout.splitlines()) & candidates
 
 
 def sync_mounts(
