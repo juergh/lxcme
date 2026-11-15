@@ -1105,6 +1105,159 @@ class TestMainWork:
         assert mock_exec.call_args[1]["home_path"] == "/home/alice"
 
 
+class TestMainPruneWork:
+    def _run(
+        self,
+        args: list[str],
+        *,
+        current_mounts: list[tuple[str, str]] | None = None,
+        in_use: set[str] | None = None,
+        running: bool = True,
+        probe_error: Exception | None = None,
+    ) -> tuple[Result, MagicMock, MagicMock, MagicMock]:
+        runner = CliRunner()
+        user = _make_user()
+        instance = _make_instance(running=running)
+        probe_patch = patch("lxcme.cli.find_in_use_work_mounts", return_value=in_use or set())
+
+        with (
+            patch("lxcme.cli.get_target_info", return_value=_TARGET_UBUNTU),
+            patch("lxcme.cli.get_current_user", return_value=user),
+            patch("lxcme.cli.pylxd.Client"),
+            patch("lxcme.cli.find_instance", return_value=instance),
+            patch("lxcme.cli.is_setup_done", return_value=True),
+            patch("lxcme.cli.ensure_running"),
+            patch("lxcme.cli.get_tracked_mounts", return_value=current_mounts or []),
+            probe_patch as mock_probe,
+            patch("lxcme.cli.sync_mounts", return_value=False) as mock_sync,
+            patch("lxcme.cli.get_instance_user_ids", return_value=_INSTANCE_IDS),
+            patch("lxcme.cli.is_interactive", return_value=False),
+            patch("lxcme.cli.exec_noninteractive", return_value=(0, "", "")),
+            patch("lxcme.cli.os.getcwd", return_value="/tmp/work"),
+            patch("lxcme.cli.logger") as mock_logger,
+        ):
+            if probe_error is not None:
+                mock_probe.side_effect = probe_error
+            result = runner.invoke(main, args)
+
+        return result, mock_probe, mock_sync, mock_logger
+
+    def test_removes_unused_work_mount(self) -> None:
+        work_path = _work_path_for("/host/work")
+        result, mock_probe, mock_sync, _ = self._run(
+            ["--prune-work"],
+            current_mounts=[("/host/work", work_path), ("/data", "/data")],
+        )
+
+        assert result.exit_code == 0
+        assert mock_probe.call_args[0][1] == {work_path}
+        assert mock_sync.call_args[0][1] == [("/data", "/data")]
+
+    def test_keeps_in_use_work_mount(self) -> None:
+        work_path = _work_path_for("/host/work")
+        result, _, mock_sync, _ = self._run(
+            ["--prune-work"],
+            current_mounts=[("/host/work", work_path)],
+            in_use={work_path},
+        )
+
+        assert result.exit_code == 0
+        mock_sync.assert_not_called()
+
+    def test_wrong_hash_is_not_a_work_mount(self) -> None:
+        result, mock_probe, mock_sync, mock_logger = self._run(
+            ["--prune-work"],
+            current_mounts=[("/host/work", "/work-000000000000")],
+        )
+
+        assert result.exit_code == 0
+        mock_probe.assert_not_called()
+        mock_sync.assert_not_called()
+        mock_logger.warning.assert_not_called()
+
+    def test_not_running_warns_and_skips(self) -> None:
+        work_path = _work_path_for("/host/work")
+        result, mock_probe, mock_sync, mock_logger = self._run(
+            ["--prune-work"],
+            current_mounts=[("/host/work", work_path)],
+            running=False,
+        )
+
+        assert result.exit_code == 0
+        mock_probe.assert_not_called()
+        mock_sync.assert_not_called()
+        mock_logger.warning.assert_called_once()
+
+    def test_clear_mounts_dominates(self) -> None:
+        result, mock_probe, mock_sync, _ = self._run(
+            ["--prune-work", "--clear-mounts"],
+            current_mounts=[("/host/work", _work_path_for("/host/work"))],
+        )
+
+        assert result.exit_code == 0
+        mock_probe.assert_not_called()
+        assert mock_sync.call_args[0][1] == []
+        assert mock_sync.call_args[1]["replace"] is True
+
+    def test_prune_work_with_work_keeps_current_mount(self) -> None:
+        work_path = _work_path_for("/tmp/work")
+        result, mock_probe, mock_sync, _ = self._run(
+            ["--prune-work", "--work"],
+            current_mounts=[("/tmp/work", work_path)],
+        )
+
+        assert result.exit_code == 0
+        mock_probe.assert_not_called()
+        assert ("/tmp/work", work_path) in mock_sync.call_args[0][1]
+
+    def test_cwd_protects_work_mount(self) -> None:
+        work_path = _work_path_for("/host/work")
+        result, mock_probe, mock_sync, _ = self._run(
+            ["--prune-work", "--cwd", work_path, "--", "true"],
+            current_mounts=[("/host/work", work_path)],
+        )
+
+        assert result.exit_code == 0
+        mock_probe.assert_not_called()
+        mock_sync.assert_not_called()
+
+    def test_cwd_protects_only_the_matching_mount(self) -> None:
+        protected_path = _work_path_for("/host/protected")
+        stale_path = _work_path_for("/host/stale")
+        result, mock_probe, mock_sync, _ = self._run(
+            ["--prune-work", "--cwd", protected_path, "--", "true"],
+            current_mounts=[
+                ("/host/protected", protected_path),
+                ("/host/stale", stale_path),
+            ],
+        )
+
+        assert result.exit_code == 0
+        assert mock_probe.call_args[0][1] == {stale_path}
+        assert mock_sync.call_args[0][1] == [("/host/protected", protected_path)]
+
+    def test_probe_failure_aborts_without_syncing(self) -> None:
+        result, _, mock_sync, _ = self._run(
+            ["--prune-work"],
+            current_mounts=[("/host/work", _work_path_for("/host/work"))],
+            probe_error=RuntimeError("probe failed"),
+        )
+
+        assert result.exit_code != 0
+        assert "probe failed" in result.output
+        mock_sync.assert_not_called()
+
+    def test_logs_removed_mount(self) -> None:
+        work_path = _work_path_for("/host/work")
+        result, _, _, mock_logger = self._run(
+            ["--prune-work"],
+            current_mounts=[("/host/work", work_path)],
+        )
+
+        assert result.exit_code == 0
+        mock_logger.info.assert_called_once_with("Removing unused work mount '%s'.", work_path)
+
+
 class TestMainSafety:
     def _run(self, instance: MagicMock, args: list[str] | None = None) -> tuple[Result, MagicMock, MagicMock]:
         runner = CliRunner()

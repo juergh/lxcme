@@ -18,6 +18,7 @@ from lxcme.users import (
     configure_idmap,
     ensure_group,
     ensure_user,
+    find_in_use_work_mounts,
     get_instance_user_ids,
     get_tracked_mounts,
     is_setup_done,
@@ -295,6 +296,56 @@ class TestGetTrackedMounts:
 
         assert len(mounts) == 1
         assert ("/data", "/data") in mounts
+
+
+class TestFindInUseWorkMounts:
+    def test_empty_candidates_skips_probe(self) -> None:
+        instance = MagicMock()
+
+        assert find_in_use_work_mounts(instance, set()) == set()
+        instance.execute.assert_not_called()
+
+    def test_runs_probe_as_root_from_root_with_sorted_candidates(self) -> None:
+        instance = MagicMock()
+        instance.execute.return_value = _make_exec_result(stdout="/work-b\n")
+
+        result = find_in_use_work_mounts(instance, {"/work-b", "/work-a"})
+
+        assert result == {"/work-b"}
+        command = instance.execute.call_args[0][0]
+        assert command[0] == "/bin/sh"
+        assert command[1] == "-c"
+        assert command[3] == "lxcme-probe"
+        assert command[4:] == ["/work-a", "/work-b"]
+        assert instance.execute.call_args[1] == {"user": 0, "cwd": "/"}
+
+    def test_ignores_output_that_is_not_a_candidate(self) -> None:
+        instance = MagicMock()
+        instance.execute.return_value = _make_exec_result(stdout="/work-a\n/work-unknown\n\n")
+
+        assert find_in_use_work_mounts(instance, {"/work-a"}) == {"/work-a"}
+
+    def test_deduplicates_output(self) -> None:
+        instance = MagicMock()
+        instance.execute.return_value = _make_exec_result(stdout="/work-a\n/work-a\n")
+
+        assert find_in_use_work_mounts(instance, {"/work-a"}) == {"/work-a"}
+
+    def test_raises_on_probe_failure(self) -> None:
+        instance = MagicMock()
+        instance.name = "mybox"
+        instance.execute.return_value = _make_exec_result(exit_code=11, stderr="no /proc")
+
+        with pytest.raises(RuntimeError, match="mybox.*no /proc"):
+            find_in_use_work_mounts(instance, {"/work-a"})
+
+    def test_reports_exit_code_when_stderr_is_empty(self) -> None:
+        instance = MagicMock()
+        instance.name = "mybox"
+        instance.execute.return_value = _make_exec_result(exit_code=13)
+
+        with pytest.raises(RuntimeError, match="exit code 13"):
+            find_in_use_work_mounts(instance, {"/work-a"})
 
 
 class TestSudoersFilename:
