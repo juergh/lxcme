@@ -79,6 +79,46 @@ def _effective_cwd(as_root: bool, cwd: str | None, home: str) -> str:
     return "/" if as_root else home
 
 
+def _build_exec_argv(
+    instance_name: str,
+    command: list[str],
+    cwd: str,
+    identity: tuple[int, int] | None,
+    environment: dict[str, str],
+) -> list[str]:
+    """Build the 'lxc exec' argv for an interactive session."""
+    argv = ["lxc", "exec", instance_name, "--cwd", cwd]
+    if identity is not None:
+        argv += ["--user", str(identity[0]), "--group", str(identity[1])]
+    for key, value in environment.items():
+        argv += ["--env", f"{key}={value}"]
+    return argv + ["--"] + command
+
+
+def _interactive_argv(
+    instance_name: str,
+    user: User,
+    command: list[str],
+    instance_uid: int,
+    instance_gid: int,
+    *,
+    as_root: bool,
+    extra_env: dict[str, str] | None,
+    cwd: str | None,
+    home_path: str | None,
+) -> list[str]:
+    """Assemble identity, environment, and cwd into an 'lxc exec' argv."""
+    home = _resolved_home(user, home_path)
+    effective_cwd = _effective_cwd(as_root, cwd, home)
+    identity = None if as_root else (instance_uid, instance_gid)
+    environment: dict[str, str] = {}
+    if not as_root:
+        environment = {"HOME": home, "USER": user.username, "LOGNAME": user.username}
+    if extra_env:
+        environment.update(extra_env)
+    return _build_exec_argv(instance_name, command, effective_cwd, identity, environment)
+
+
 def exec_interactive(
     instance_name: str,
     user: User,
@@ -92,28 +132,17 @@ def exec_interactive(
     home_path: str | None = None,
 ) -> None:
     """Replace current process with interactive lxc exec session (never returns)."""
-    argv = ["lxc", "exec", instance_name]
-    home = _resolved_home(user, home_path)
-    argv += ["--cwd", _effective_cwd(as_root, cwd, home)]
-
-    if not as_root:
-        argv += [
-            "--user",
-            str(instance_uid),
-            "--group",
-            str(instance_gid),
-            "--env",
-            f"HOME={home}",
-            "--env",
-            f"USER={user.username}",
-            "--env",
-            f"LOGNAME={user.username}",
-        ]
-
-    for key, value in (extra_env or {}).items():
-        argv += ["--env", f"{key}={value}"]
-
-    argv += ["--"] + command
+    argv = _interactive_argv(
+        instance_name,
+        user,
+        command,
+        instance_uid,
+        instance_gid,
+        as_root=as_root,
+        extra_env=extra_env,
+        cwd=cwd,
+        home_path=home_path,
+    )
     try:
         os.execvp("lxc", argv)
     except FileNotFoundError as exc:
@@ -133,28 +162,17 @@ def exec_interactive_wait(
     home_path: str | None = None,
 ) -> int:
     """Run interactive lxc exec session via subprocess, returning exit code."""
-    argv = ["lxc", "exec", instance_name]
-    home = _resolved_home(user, home_path)
-    argv += ["--cwd", _effective_cwd(as_root, cwd, home)]
-
-    if not as_root:
-        argv += [
-            "--user",
-            str(instance_uid),
-            "--group",
-            str(instance_gid),
-            "--env",
-            f"HOME={home}",
-            "--env",
-            f"USER={user.username}",
-            "--env",
-            f"LOGNAME={user.username}",
-        ]
-
-    for key, value in (extra_env or {}).items():
-        argv += ["--env", f"{key}={value}"]
-
-    argv += ["--"] + command
+    argv = _interactive_argv(
+        instance_name,
+        user,
+        command,
+        instance_uid,
+        instance_gid,
+        as_root=as_root,
+        extra_env=extra_env,
+        cwd=cwd,
+        home_path=home_path,
+    )
     try:
         result = subprocess.run(argv)
     except FileNotFoundError as exc:
