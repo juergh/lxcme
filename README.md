@@ -44,6 +44,7 @@ Without `--`, the first positional argument is the instance name and the remaini
 | `--work` | Mount the current directory at `/work-<hash>` and use it as the working directory. |
 | `--clear-mounts` | Remove all lxcme-managed mounts before adding new ones. Affects every process using the instance. |
 | `--prune-work` | Remove `--work` mounts no process in the instance is using. |
+| `--mount-plan` | Show the mount changes a run would apply and exit without applying them. Requires an existing instance. |
 | `--env KEY=VALUE` | Set an environment variable inside the instance. Repeatable. |
 | `--cwd PATH` | Set the working directory inside the instance. |
 | `--wait` | Wait for interactive session to exit instead of replacing the process. Useful for wrapper scripts. |
@@ -89,6 +90,12 @@ lxcme --prune-work
 
 # Remove unused work mounts and enter the current directory
 lxcme --prune-work --work
+
+# Show what mounting /data would change, then exit without applying it
+lxcme --mount-plan --mount /data
+
+# Show what clearing all mounts would change
+lxcme --mount-plan --clear-mounts
 
 # Use a specific distro/release
 lxcme --distro debian --release bookworm
@@ -176,6 +183,8 @@ Mounts are tracked as LXD disk devices with a `lxcme_` prefix. New device names 
 `--clear-mounts` is destructive and instance-global. It affects every process using the container and does not prompt.
 
 `--prune-work` removes `--work` mounts that no process in the instance is using. Work mounts are identified from the instance's LXD device config by matching the instance path to the hash of the host source. A mount is considered in use when a process has it as its working directory, root, executable, or an open file descriptor. The current `--work` and `--cwd` targets are never pruned. Pruning only runs when the instance is already running; otherwise lxcme warns and skips it. Detection is best-effort: a process can enter a mount between the check and removal. `--clear-mounts` takes precedence when both flags are given.
+
+`--mount-plan` shows the changes a run would apply to the instance's mounts and exits without applying them. It requires an existing instance and never creates, starts, provisions, or enters the container. Output marks mounts that would be added (`+`), removed (`-`), and left unchanged (`=`). Pruning is previewed only when the instance is already running; otherwise the plan reports that pruning is skipped.
 
 ### Command execution
 
