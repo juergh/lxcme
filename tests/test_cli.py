@@ -9,7 +9,14 @@ import click
 import pytest
 from click.testing import CliRunner, Result
 
-from lxcme.cli import _canonical_host_dir, _merge_mount_request, _parse_mount, _work_path_for, main
+from lxcme.cli import (
+    _canonical_host_dir,
+    _merge_mount_request,
+    _parse_mount,
+    _plan_mounts,
+    _work_path_for,
+    main,
+)
 from lxcme.instances import LXCME_MARKER
 from lxcme.target import TargetInfo
 from lxcme.users import INSTANCE_GID_KEY, INSTANCE_UID_KEY, User
@@ -127,6 +134,61 @@ class TestMergeMountRequest:
         desired = [("/old", "/shared")]
         with pytest.raises(click.ClickException, match="Refusing to replace"):
             _merge_mount_request(desired, ("/new", "/shared"), "box")
+
+
+class TestPlanMounts:
+    def test_clear_mounts_keeps_only_requests(self) -> None:
+        instance = _make_instance()
+        with patch("lxcme.cli.get_tracked_mounts", return_value=[("/old", "/old")]):
+            plan = _plan_mounts(
+                instance,
+                [("/new", "/new")],
+                None,
+                clear_mounts=True,
+                prune_work=False,
+                was_running=True,
+            )
+
+        assert plan.current == [("/old", "/old")]
+        assert plan.desired == [("/new", "/new")]
+        assert plan.pruned == set()
+        assert plan.prune_skipped is False
+
+    def test_prune_skipped_when_not_running(self) -> None:
+        work_path = _work_path_for("/host/work")
+        instance = _make_instance()
+        with patch("lxcme.cli.get_tracked_mounts", return_value=[("/host/work", work_path)]):
+            plan = _plan_mounts(
+                instance,
+                [],
+                None,
+                clear_mounts=False,
+                prune_work=True,
+                was_running=False,
+            )
+
+        assert plan.prune_skipped is True
+        assert plan.pruned == set()
+        assert plan.desired == [("/host/work", work_path)]
+
+    def test_prune_removes_unused_work_mount(self) -> None:
+        work_path = _work_path_for("/host/work")
+        instance = _make_instance()
+        with (
+            patch("lxcme.cli.get_tracked_mounts", return_value=[("/host/work", work_path)]),
+            patch("lxcme.cli.find_in_use_work_mounts", return_value=set()),
+        ):
+            plan = _plan_mounts(
+                instance,
+                [],
+                None,
+                clear_mounts=False,
+                prune_work=True,
+                was_running=True,
+            )
+
+        assert plan.pruned == {work_path}
+        assert plan.desired == []
 
 
 class TestMainExistingInstance:
@@ -1256,6 +1318,171 @@ class TestMainPruneWork:
 
         assert result.exit_code == 0
         mock_logger.info.assert_called_once_with("Removing unused work mount '%s'.", work_path)
+
+
+class TestMainMountPlan:
+    def _run(
+        self,
+        args: list[str],
+        *,
+        instance: MagicMock | None = None,
+        current_mounts: list[tuple[str, str]] | None = None,
+        in_use: set[str] | None = None,
+    ) -> tuple[Result, MagicMock, MagicMock, MagicMock, MagicMock, MagicMock, MagicMock]:
+        runner = CliRunner()
+        user = _make_user()
+        inst = instance or _make_instance()
+
+        with (
+            patch("lxcme.cli.get_target_info", return_value=_TARGET_UBUNTU),
+            patch("lxcme.cli.get_current_user", return_value=user),
+            patch("lxcme.cli.pylxd.Client"),
+            patch("lxcme.cli.find_instance", return_value=inst),
+            patch("lxcme.cli.get_tracked_mounts", return_value=current_mounts or []),
+            patch("lxcme.cli.find_in_use_work_mounts", return_value=in_use or set()) as mock_probe,
+            patch("lxcme.cli.is_setup_done"),
+            patch("lxcme.cli.setup_instance_user") as mock_setup,
+            patch("lxcme.cli.ensure_running") as mock_running,
+            patch("lxcme.cli.sync_mounts") as mock_sync,
+            patch("lxcme.cli.exec_interactive") as mock_exec_interactive,
+            patch("lxcme.cli.exec_noninteractive") as mock_exec_noninteractive,
+        ):
+            result = runner.invoke(main, args)
+
+        return (
+            result,
+            mock_sync,
+            mock_probe,
+            mock_running,
+            mock_setup,
+            mock_exec_interactive,
+            mock_exec_noninteractive,
+        )
+
+    def test_added_mount_is_shown_and_not_applied(self, tmp_path: Path) -> None:
+        result, mock_sync, _, mock_running, mock_setup, mock_exec_i, mock_exec_n = self._run(
+            ["--mount-plan", "--mount", str(tmp_path)]
+        )
+
+        assert result.exit_code == 0
+        assert f"+ {tmp_path} -> {tmp_path}" in result.output
+        mock_sync.assert_not_called()
+        mock_running.assert_not_called()
+        mock_setup.assert_not_called()
+        mock_exec_i.assert_not_called()
+        mock_exec_n.assert_not_called()
+
+    def test_unchanged_mount_is_shown(self) -> None:
+        result, *_ = self._run(["--mount-plan"], current_mounts=[("/data", "/data")])
+
+        assert result.exit_code == 0
+        assert "= /data -> /data" in result.output
+
+    def test_clear_mounts_shows_removals(self) -> None:
+        result, mock_sync, *_ = self._run(
+            ["--mount-plan", "--clear-mounts"],
+            current_mounts=[("/data", "/data")],
+        )
+
+        assert result.exit_code == 0
+        assert "- /data -> /data" in result.output
+        mock_sync.assert_not_called()
+
+    def test_prune_work_shows_unused_removal(self) -> None:
+        work_path = _work_path_for("/host/work")
+        result, mock_sync, mock_probe, *_ = self._run(
+            ["--mount-plan", "--prune-work"],
+            current_mounts=[("/host/work", work_path)],
+        )
+
+        assert result.exit_code == 0
+        assert f"- /host/work -> {work_path} (unused work mount)" in result.output
+        mock_probe.assert_called_once()
+        mock_sync.assert_not_called()
+
+    def test_prune_work_keeps_in_use_mount(self) -> None:
+        work_path = _work_path_for("/host/work")
+        result, _, _, *_ = self._run(
+            ["--mount-plan", "--prune-work"],
+            current_mounts=[("/host/work", work_path)],
+            in_use={work_path},
+        )
+
+        assert result.exit_code == 0
+        assert f"= /host/work -> {work_path}" in result.output
+        assert f"- /host/work -> {work_path}" not in result.output
+
+    def test_prune_work_stopped_reports_skipped(self) -> None:
+        work_path = _work_path_for("/host/work")
+        result, _, mock_probe, mock_running, *_ = self._run(
+            ["--mount-plan", "--prune-work"],
+            instance=_make_instance(running=False),
+            current_mounts=[("/host/work", work_path)],
+        )
+
+        assert result.exit_code == 0
+        assert "work mount prune skipped" in result.output
+        mock_probe.assert_not_called()
+        mock_running.assert_not_called()
+
+    def test_no_mounts_reports_no_changes(self) -> None:
+        result, *_ = self._run(["--mount-plan"])
+
+        assert result.exit_code == 0
+        assert "(no mount changes would be made)" in result.output
+
+    def test_command_is_not_executed(self) -> None:
+        result, _, _, _, _, mock_exec_i, mock_exec_n = self._run(["--mount-plan", "--", "bash"])
+
+        assert result.exit_code == 0
+        mock_exec_i.assert_not_called()
+        mock_exec_n.assert_not_called()
+
+    def test_missing_instance_is_rejected(self) -> None:
+        runner = CliRunner()
+        user = _make_user()
+
+        with (
+            patch("lxcme.cli.get_target_info", return_value=_TARGET_UBUNTU),
+            patch("lxcme.cli.get_current_user", return_value=user),
+            patch("lxcme.cli.pylxd.Client"),
+            patch("lxcme.cli.find_instance", return_value=None),
+            patch("lxcme.cli.ensure_image") as mock_image,
+            patch("lxcme.cli.create_instance") as mock_create,
+            patch("lxcme.cli.get_tracked_mounts") as mock_tracked,
+        ):
+            result = runner.invoke(main, ["--mount-plan"])
+
+        assert result.exit_code != 0
+        assert "does not exist" in result.output
+        mock_image.assert_not_called()
+        mock_create.assert_not_called()
+        mock_tracked.assert_not_called()
+
+    def test_conflicting_mount_is_rejected(self, tmp_path: Path) -> None:
+        result, mock_sync, *_ = self._run(
+            ["--mount-plan", "--mount", f"{tmp_path}:/shared"],
+            current_mounts=[("/old", "/shared")],
+        )
+
+        assert result.exit_code != 0
+        assert "Refusing to replace" in result.output
+        mock_sync.assert_not_called()
+
+    def test_unmanaged_instance_is_rejected(self) -> None:
+        result, *_ = self._run(["--mount-plan"], instance=_make_instance(managed=False))
+
+        assert result.exit_code != 0
+        assert "not managed by lxcme" in result.output
+
+    def test_virtual_machine_is_rejected(self) -> None:
+        result, *_ = self._run(
+            ["--mount-plan"],
+            instance=_make_instance(instance_type="virtual-machine"),
+        )
+
+        assert result.exit_code != 0
+        assert "not a container" in result.output
 
 
 class TestMainSafety:
