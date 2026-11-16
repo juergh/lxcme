@@ -8,11 +8,13 @@ import logging
 import os
 import sys
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 
 import click
 import pylxd
 import pylxd.exceptions
+import pylxd.models
 
 from lxcme import __version__
 from lxcme.images import ensure_image
@@ -147,6 +149,75 @@ def _merge_mount_request(
     logger.warning("Mount already present: %s -> %s", host, instance_path)
 
 
+@dataclass(frozen=True)
+class MountPlan:
+    """Mount changes that a sync would apply to an instance."""
+
+    current: list[tuple[str, str]]
+    desired: list[tuple[str, str]]
+    pruned: set[str]
+    prune_skipped: bool
+
+
+def _plan_mounts(
+    instance: pylxd.models.Instance,
+    requested_mounts: list[tuple[str, str]],
+    cwd: str | None,
+    *,
+    clear_mounts: bool,
+    prune_work: bool,
+    was_running: bool,
+) -> MountPlan:
+    """Compute mount changes for an instance without applying them."""
+    current = get_tracked_mounts(instance)
+    desired = [] if clear_mounts else list(current)
+    pruned: set[str] = set()
+    prune_skipped = False
+
+    if prune_work and not clear_mounts:
+        candidates = {path for host, path in desired if path == _work_path_for(host)}
+        protected = {path for _, path in requested_mounts}
+        if cwd is not None:
+            protected.update(path for path in candidates if cwd == path or cwd.startswith(f"{path}/"))
+        candidates -= protected
+
+        if candidates and not was_running:
+            prune_skipped = True
+        elif candidates:
+            in_use = find_in_use_work_mounts(instance, candidates)
+            pruned = candidates - in_use
+            desired = [pair for pair in desired if pair[1] not in pruned]
+
+    for request in requested_mounts:
+        _merge_mount_request(desired, request, instance.name)
+
+    return MountPlan(current=current, desired=desired, pruned=pruned, prune_skipped=prune_skipped)
+
+
+def _print_mount_plan(instance_name: str, plan: MountPlan) -> None:
+    """Print the mount changes that would be applied."""
+    click.echo(f"Mount plan for instance '{instance_name}' (no changes applied):")
+    printed = False
+    if plan.prune_skipped:
+        click.echo("  ! work mount prune skipped: instance is not running")
+        printed = True
+    for host, path in plan.desired:
+        if (host, path) not in plan.current:
+            click.echo(f"  + {host} -> {path}")
+            printed = True
+    for host, path in plan.current:
+        if (host, path) not in plan.desired:
+            reason = " (unused work mount)" if path in plan.pruned else ""
+            click.echo(f"  - {host} -> {path}{reason}")
+            printed = True
+    for host, path in plan.desired:
+        if (host, path) in plan.current:
+            click.echo(f"  = {host} -> {path}")
+            printed = True
+    if not printed:
+        click.echo("  (no mount changes would be made)")
+
+
 @click.command(cls=_Command)
 @click.version_option(__version__, prog_name="lxcme")
 @click.option("--root", is_flag=True, default=False, help="Run command as root inside the instance.")
@@ -184,6 +255,12 @@ def _merge_mount_request(
     help="Remove --work mounts no process in the instance is using.",
 )
 @click.option(
+    "--mount-plan",
+    is_flag=True,
+    default=False,
+    help="Show mount changes without applying them, then exit.",
+)
+@click.option(
     "--env",
     "env_vars",
     multiple=True,
@@ -207,6 +284,7 @@ def main(
     work: bool,
     clear_mounts: bool,
     prune_work: bool,
+    mount_plan: bool,
     env_vars: tuple[str, ...],
     distro: str | None,
     release: str | None,
@@ -234,6 +312,7 @@ def main(
       lxcme --home /host/home                   Mount /host/home as $HOME
       lxcme --work my-box                       Mount cwd at /work-<hash> and enter
       lxcme --prune-work                        Remove unused --work mounts
+      lxcme --mount-plan --mount /data           Show mount changes and exit
       lxcme --clear-mounts                      Remove all lxcme-managed mounts
       lxcme --clear-mounts --home /host/home    Replace all mounts with a new home
     """
@@ -281,6 +360,23 @@ def main(
         if instance.type != "container":
             raise click.ClickException(f"Instance '{instance_name}' is not a container.")
 
+    if mount_plan:
+        if instance is None:
+            raise click.ClickException(
+                f"Instance '{instance_name}' does not exist; --mount-plan requires an existing instance."
+            )
+        instance.sync()
+        plan = _plan_mounts(
+            instance,
+            requested_mounts,
+            cwd,
+            clear_mounts=clear_mounts,
+            prune_work=prune_work,
+            was_running=instance.status == "Running",
+        )
+        _print_mount_plan(instance_name, plan)
+        return
+
     if is_new:
         mount_summary = ", ".join(f"{host}:{inst}" for host, inst in requested_mounts) or "(none)"
         click.echo(
@@ -308,33 +404,23 @@ def main(
     ensure_running(instance)
     instance.sync()
 
-    current_mounts = [] if clear_mounts else get_tracked_mounts(instance)
-    pruned: set[str] = set()
+    plan = _plan_mounts(
+        instance,
+        requested_mounts,
+        cwd,
+        clear_mounts=clear_mounts,
+        prune_work=prune_work,
+        was_running=was_running,
+    )
+    if plan.prune_skipped:
+        logger.warning("Instance '%s' is not running; skipping work mount prune.", instance_name)
+    for path in sorted(plan.pruned):
+        logger.info("Removing unused work mount '%s'.", path)
 
-    if prune_work and not clear_mounts:
-        candidates = {path for host, path in current_mounts if path == _work_path_for(host)}
-        protected = {path for _, path in requested_mounts}
-        if cwd is not None:
-            protected.update(path for path in candidates if cwd == path or cwd.startswith(f"{path}/"))
-        candidates -= protected
+    if clear_mounts or requested_mounts or plan.pruned:
+        sync_mounts(instance, plan.desired, replace=clear_mounts)
 
-        if candidates and not was_running:
-            logger.warning("Instance '%s' is not running; skipping work mount prune.", instance_name)
-        elif candidates:
-            in_use = find_in_use_work_mounts(instance, candidates)
-            pruned = candidates - in_use
-            for path in sorted(pruned):
-                logger.info("Removing unused work mount '%s'.", path)
-            current_mounts = [pair for pair in current_mounts if pair[1] not in pruned]
-
-    desired_mounts = list(current_mounts)
-    for request in requested_mounts:
-        _merge_mount_request(desired_mounts, request, instance_name)
-
-    if clear_mounts or requested_mounts or pruned:
-        sync_mounts(instance, desired_mounts, replace=clear_mounts)
-
-    home_mounted = any(path == home_path for _, path in desired_mounts)
+    home_mounted = any(path == home_path for _, path in plan.desired)
     home_for_exec = home_path if home_mounted else "/"
 
     # Resolve uid/gid as they exist inside the instance (stored at first-launch)
