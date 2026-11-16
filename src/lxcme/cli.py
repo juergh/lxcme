@@ -7,6 +7,7 @@ import hashlib
 import logging
 import os
 import sys
+import warnings
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -42,6 +43,14 @@ from lxcme.users import (
 
 logger = logging.getLogger(__name__)
 
+# pylxd warns about a server-provided Operation field it does not model.
+warnings.filterwarnings(
+    "ignore",
+    message=r'Attempted to set unknown attribute "requestor"',
+    category=UserWarning,
+    module=r"pylxd\.models\.operation",
+)
+
 
 class _Command(click.Command):
     """Click command that separates command arguments from lxcme options."""
@@ -76,6 +85,7 @@ def _configure_logging(verbose: bool) -> None:
     """Configure logging level (DEBUG if verbose, otherwise INFO)."""
     level = logging.DEBUG if verbose else logging.INFO
     logging.basicConfig(format="%(levelname)s: %(message)s", level=level, force=True)
+    logging.getLogger("ws4py").setLevel(logging.WARNING)
 
 
 def _resolve_command(command: tuple[str, ...]) -> list[str]:
